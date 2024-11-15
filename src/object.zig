@@ -96,7 +96,7 @@ pub const Object = struct {
         };
     }
 
-    pub fn dims(self: Object, object_list: *Objects) struct { usize, usize } {
+    pub fn dims(self: Object, object_list: *Objects) ?struct { usize, usize } {
         switch (self.data) {
             .filesystem => |*f| {
                 return .{ f.width, f.height };
@@ -112,8 +112,9 @@ pub const Object = struct {
             .shader => |s| {
                 return .{ s.width, s.height };
             },
-            inline else => |_, t| {
-                @panic("Do not know how to get width for " ++ @tagName(t));
+            .composition => {
+                // FIXME: Customize composition size
+                return .{ 1920, 1080 };
             },
         }
     }
@@ -249,7 +250,6 @@ pub const FilesystemObject = struct {
     source: [:0]const u8,
     width: usize,
     height: usize,
-    // FIXME: Aspect
 
     texture: Renderer.Texture,
 

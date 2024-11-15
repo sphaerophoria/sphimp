@@ -158,7 +158,7 @@ pub fn createPath(self: *App) !void {
         },
     });
 
-    const selected_dims = self.objects.get(self.selected_object).dims(&self.objects);
+    const selected_dims = self.objects.get(self.selected_object).dims(&self.objects) orelse return error.NoDims;
     const mask_id = self.objects.nextId();
     try self.objects.append(self.alloc, .{
         .name = try self.alloc.dupe(u8, "new mask"),
@@ -208,7 +208,7 @@ fn regenerateMask(self: *App, mask: *obj_mod.GeneratedMaskObject) !void {
         else => return error.InvalidMaskObj,
     };
 
-    const width, const height = path_obj.dims(&self.objects);
+    const width, const height = path_obj.dims(&self.objects) orelse return error.NoDims;
     var tmp = try obj_mod.GeneratedMaskObject.generate(self.alloc, mask.source, width, height, path.points.items);
     defer tmp.deinit();
 

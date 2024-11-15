@@ -43,7 +43,16 @@ pub fn render(self: *Renderer, alloc: Allocator, objects: *Objects, selected_obj
     defer texture_cache.deinit();
 
     const active_object = objects.get(selected_object);
-    try self.renderObjectWithTransform(alloc, objects, active_object.*, Transform.identity, &texture_cache);
+    const object_dims = active_object.dims(objects) orelse .{ window_width, window_height };
+
+    const window_aspect = calcAspect(window_width, window_height);
+    const composition_aspect = calcAspect(object_dims[0], object_dims[1]);
+    const transform = transformFromDisplayDims(
+        composition_aspect,
+        window_aspect,
+    );
+
+    try self.renderObjectWithTransform(alloc, objects, active_object.*, transform, &texture_cache, composition_aspect);
 }
 
 fn renderedTexture(self: *Renderer, alloc: Allocator, objects: *Objects, texture_cache: *TextureCache, id: ObjectId) !Texture {
@@ -56,7 +65,7 @@ fn renderedTexture(self: *Renderer, alloc: Allocator, objects: *Objects, texture
     return texture;
 }
 
-fn renderObjectWithTransform(self: *Renderer, alloc: Allocator, objects: *Objects, object: Object, transform: Transform, texture_cache: *TextureCache) !void {
+fn renderObjectWithTransform(self: *Renderer, alloc: Allocator, objects: *Objects, object: Object, transform: Transform, texture_cache: *TextureCache, render_target_aspect: f32) !void {
     switch (object.data) {
         .composition => |c| {
             for (c.objects.items) |composition_object| {
@@ -65,10 +74,31 @@ fn renderObjectWithTransform(self: *Renderer, alloc: Allocator, objects: *Object
                     .composition => return error.NestedComposition,
                     else => {},
                 }
-                try self.renderObjectWithTransform(alloc, objects, next_object.*, composition_object.transform, texture_cache);
+                const next_object_dims = next_object.dims(objects) orelse return error.NoDims;
+
+                const aspect_transform = transformFromDisplayDims(
+                    calcAspect(next_object_dims[0], next_object_dims[1]),
+                    // FIXME: Composition resolution
+                    render_target_aspect,
+                );
+
+                const next_transform = transform.matmul(composition_object.transform.matmul(aspect_transform));
+                try self.renderObjectWithTransform(alloc, objects, next_object.*, next_transform, texture_cache, render_target_aspect);
             }
         },
         .filesystem => |f| {
+            // scale in width OR height
+            // aspect ratio of window == apsect ratio of image
+            //
+            // aspect = w / h
+            //
+            // window_aspect > image_aspect
+            //
+            // scale height until they're the same
+            //
+            // window apsect 16 / 9
+            // image apsect 16 / 10
+            // image h * 10 / 9
             self.program.render(&.{f.texture}, transform);
         },
         .shader => |s| {
@@ -84,7 +114,7 @@ fn renderObjectWithTransform(self: *Renderer, alloc: Allocator, objects: *Object
         },
         .path => |p| {
             const display_object = objects.get(p.display_object);
-            try self.renderObjectWithTransform(alloc, objects, display_object.*, transform, texture_cache);
+            try self.renderObjectWithTransform(alloc, objects, display_object.*, transform, texture_cache, render_target_aspect);
 
             self.path_program.render(p.vertex_array, p.selected_point, p.points.items.len);
         },
@@ -120,7 +150,7 @@ const TemporaryViewport = struct {
 };
 
 fn renderObjectToTexture(self: *Renderer, alloc: Allocator, objects: *Objects, input: Object, texture_cache: *TextureCache) anyerror!Texture {
-    const dep_width, const dep_height = input.dims(objects);
+    const dep_width, const dep_height = input.dims(objects) orelse return error.NoDims;
 
     const texture = makeTextureOfSize(@intCast(dep_width), @intCast(dep_height));
     errdefer texture.deinit();
@@ -135,7 +165,7 @@ fn renderObjectToTexture(self: *Renderer, alloc: Allocator, objects: *Objects, i
 
     temp_viewport.setViewport(@intCast(dep_width), @intCast(dep_height));
 
-    try self.renderObjectWithTransform(alloc, objects, input, Transform.identity, texture_cache);
+    try self.renderObjectWithTransform(alloc, objects, input, Transform.identity, texture_cache, calcAspect(dep_width, dep_height));
     return texture;
 }
 
@@ -411,6 +441,22 @@ fn makeTextureCommon() Texture {
     gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR); // Magnification filter
 
     return .{ .inner = texture };
+}
+
+fn calcAspect(width: usize, height: usize) f32 {
+    const width_f: f32 = @floatFromInt(width);
+    const height_f: f32 = @floatFromInt(height);
+
+    return width_f / height_f;
+}
+
+fn transformFromDisplayDims(inner_aspect: f32, outer_aspect: f32) Transform {
+
+    if (outer_aspect > inner_aspect) {
+        return Transform.scale(inner_aspect / outer_aspect, 1.0);
+    } else {
+        return Transform.scale(1.0, outer_aspect / inner_aspect);
+    }
 }
 
 const plane_vertices: []const f32 = &.{
