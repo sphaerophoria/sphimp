@@ -40,7 +40,7 @@ pub fn deinit(self: *Renderer, alloc: Allocator) void {
     self.program.deinit(alloc);
 }
 
-pub fn render(self: *Renderer, alloc: Allocator, objects: *Objects, selected_object: ObjectId, window_width: usize, window_height: usize) !void {
+pub fn render(self: *Renderer, alloc: Allocator, objects: *Objects, selected_object: ObjectId, window_width: usize, window_height: usize, zoom_level: f32, viewport_center: lin.Vec2) !void {
     gl.glViewport(0, 0, @intCast(window_width), @intCast(window_height));
     gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
@@ -52,10 +52,15 @@ pub fn render(self: *Renderer, alloc: Allocator, objects: *Objects, selected_obj
 
     const window_aspect = calcAspect(window_width, window_height);
     const composition_aspect = calcAspect(object_dims[0], object_dims[1]);
-    const transform = transformFromDisplayDims(
+    const aspect_transform = transformFromDisplayDims(
         composition_aspect,
         window_aspect,
     );
+
+    var transform = aspect_transform;
+    // FIXME: Seems weird that window -> clip space conversion isn't aspect ratio aware
+    transform = Transform.translate(-viewport_center[0], -viewport_center[1]).matmul(transform);
+    transform = Transform.scale(zoom_level, zoom_level).matmul(transform);
 
     self.background_program.render(&.{}, transform, composition_aspect);
 
@@ -123,7 +128,7 @@ fn renderObjectWithTransform(self: *Renderer, alloc: Allocator, objects: *Object
             const display_object = objects.get(p.display_object);
             try self.renderObjectWithTransform(alloc, objects, display_object.*, transform, texture_cache, render_target_aspect);
 
-            self.path_program.render(p.vertex_array, p.selected_point, p.points.items.len);
+            self.path_program.render(p.vertex_array, transform, p.selected_point, p.points.items.len);
         },
         .generated_mask => |m| {
             const object_dims = object.dims(objects) orelse return error.NoDims;
@@ -333,16 +338,19 @@ const TextureCache = struct {
 const PathRenderProgram = struct {
     program: gl.GLuint,
     vpos_location: gl.GLint,
+    transform_location: gl.GLint,
 
     fn init() !PathRenderProgram {
         const program = try compileLinkProgram(path_vertex_shader, path_fragment_shader);
         errdefer gl.glDeleteProgram(program);
 
         const vpos_location = gl.glGetAttribLocation(program, "vPos");
+        const transform_location = gl.glGetUniformLocation(program, "transform");
 
         return .{
             .program = program,
             .vpos_location = vpos_location,
+            .transform_location = transform_location,
         };
     }
 
@@ -350,9 +358,11 @@ const PathRenderProgram = struct {
         gl.glDeleteProgram(self.program);
     }
 
-    fn render(self: PathRenderProgram, vertex_array: gl.GLuint, selected_point: ?usize, num_points: usize) void {
+    fn render(self: PathRenderProgram, vertex_array: gl.GLuint, transform: Transform, selected_point: ?usize, num_points: usize) void {
         gl.glUseProgram(self.program);
         gl.glBindVertexArray(vertex_array);
+        gl.glUniformMatrix3fv(self.transform_location, 1, gl.GL_TRUE, &transform.data);
+
         gl.glLineWidth(8);
         gl.glPointSize(20.0);
 
@@ -463,7 +473,6 @@ fn calcAspect(width: usize, height: usize) f32 {
 }
 
 fn transformFromDisplayDims(inner_aspect: f32, outer_aspect: f32) Transform {
-
     if (outer_aspect > inner_aspect) {
         return Transform.scale(inner_aspect / outer_aspect, 1.0);
     } else {
@@ -533,10 +542,12 @@ pub const mul_fragment_shader =
 
 const path_vertex_shader =
     \\#version 330
+    \\uniform mat3x3 transform;
     \\in vec2 vPos;
     \\void main()
     \\{
-    \\    gl_Position = vec4(vPos, 0.0, 1.0);
+    \\    vec3 transformed = transform * vec3(vPos, 1.0);
+    \\    gl_Position = vec4(transformed.x, transformed.y, 0.0, transformed.z);
     \\}
 ;
 

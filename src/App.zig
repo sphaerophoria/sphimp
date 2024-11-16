@@ -22,6 +22,10 @@ renderer: Renderer,
 window_width: usize,
 window_height: usize,
 mouse_pos: lin.Vec2 = .{ 0.0, 0.0 },
+// FIXME: Reset on object selection
+zoom_level: f32 = 1.0,
+panning: bool = false,
+viewport_center: Vec2 = .{0.0, 0.0},
 selected_object: ObjectId = .{ .value = 0 },
 
 pub fn init(alloc: Allocator, window_width: usize, window_height: usize) !App {
@@ -89,13 +93,13 @@ pub fn load(self: *App, path: []const u8) !void {
 }
 
 pub fn render(self: *App) !void {
-    try self.renderer.render(self.alloc, &self.objects, self.selected_object, self.window_width, self.window_height);
+    try self.renderer.render(self.alloc, &self.objects, self.selected_object, self.window_width, self.window_height, self.zoom_level, self.viewport_center);
 }
 
 pub fn setMouseDown(self: *App) void {
     switch (self.objects.get(self.selected_object).data) {
-        .composition => |*c| c.selectClosestPoint(self.mouse_pos),
-        .path => |*p| p.selectClosestPoint(self.mouse_pos),
+        .composition => |*c| c.selectClosestPoint(self.clipToObject(self.mouse_pos)),
+        .path => |*p| p.selectClosestPoint(self.clipToObject(self.mouse_pos)),
         else => {},
     }
 }
@@ -108,14 +112,26 @@ pub fn setMouseUp(self: *App) void {
     }
 }
 
+pub fn setMiddleDown(self: *App) void {
+    self.panning = true;
+}
+
+pub fn setMiddleUp(self: *App) void {
+    self.panning = false;
+}
+
 pub fn clickRightMouse(self: *App) !void {
     switch (self.objects.get(self.selected_object).data) {
         .path => |*p| {
-            try p.addPoint(self.alloc, self.mouse_pos);
+            try p.addPoint(self.alloc, self.clipToObject(self.mouse_pos));
             try self.regeneratePathMasks(self.selected_object);
         },
         else => {},
     }
+}
+
+pub fn scroll(self: *App, amount: f32) void {
+    self.zoom_level *= std.math.pow(f32, 1.1, amount);
 }
 
 pub fn setMousePos(self: *App, xpos: f32, ypos: f32) !void {
@@ -124,17 +140,23 @@ pub fn setMousePos(self: *App, xpos: f32, ypos: f32) !void {
     const new_pos = Vec2{ new_x, new_y };
     defer self.mouse_pos = new_pos;
 
+    const offs_obj_coords = self.clipToObject(new_pos) - self.clipToObject(self.mouse_pos);
+
     switch (self.objects.get(self.selected_object).data) {
         .composition => |*composition_object| {
-            composition_object.moveObject(new_pos - self.mouse_pos);
+            composition_object.moveObject(offs_obj_coords);
         },
         .path => |*p| {
-            p.movePoint(new_pos - self.mouse_pos);
+            p.movePoint(offs_obj_coords);
             if (p.selected_point) |_| {
                 try self.regeneratePathMasks(self.selected_object);
             }
         },
         else => {},
+    }
+
+    if (self.panning) {
+        self.viewport_center -= (new_pos - self.mouse_pos) / Vec2{self.zoom_level, self.zoom_level};
     }
 }
 
@@ -246,6 +268,35 @@ fn windowToClipX(xpos: f32, width: usize) f32 {
 fn windowToClipY(ypos: f32, height: usize) f32 {
     const window_height_f: f32 = @floatFromInt(height);
     return (1.0 - (ypos / window_height_f) - 0.5) * 2;
+}
+
+// FIXME: duped in Renderer.zig
+fn calcAspect(width: usize, height: usize) f32 {
+    const width_f: f32 = @floatFromInt(width);
+    const height_f: f32 = @floatFromInt(height);
+
+    return width_f / height_f;
+}
+
+// FIXME: ObjectCoord strong type
+// FIXME: Ew this function is nasty
+fn clipToObject(self: *App, val: Vec2) Vec2 {
+    const object = self.objects.get(self.selected_object);
+    const object_dims = object.dims(&self.objects) orelse @panic("No dims");
+
+    const obj_aspect = calcAspect(object_dims[0], object_dims[1]);
+    const window_aspect = calcAspect(self.window_width, self.window_height);
+
+    var aspect_aspect_v: Vec2 = undefined;
+    // FIXME: Kinda duplicated with renderer code which is weird
+    // App should own viewport transform probably
+    if (window_aspect > obj_aspect) {
+        aspect_aspect_v = Vec2{obj_aspect / window_aspect, 1.0};
+    } else {
+        aspect_aspect_v = Vec2{1.0, window_aspect / obj_aspect};
+    }
+
+    return (self.viewport_center + val / Vec2{self.zoom_level, self.zoom_level}) / aspect_aspect_v;
 }
 
 pub fn loadImageToTexture(path: [:0]const u8) !gl.GLuint {

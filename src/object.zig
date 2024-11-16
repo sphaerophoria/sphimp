@@ -96,6 +96,7 @@ pub const Object = struct {
         };
     }
 
+    // FIXME: remove optional
     pub fn dims(self: Object, object_list: *Objects) ?struct { usize, usize } {
         switch (self.data) {
             .filesystem => |*f| {
@@ -316,6 +317,7 @@ pub const PathObject = struct {
     pub fn selectClosestPoint(self: *PathObject, test_pos: Vec2) void {
         var closest_point: usize = 0;
         var min_dist = std.math.inf(f32);
+        std.debug.print("{any}\n" ,.{test_pos});
 
         for (self.points.items, 0..) |point, idx| {
             const dist = lin.length2(test_pos - point);
