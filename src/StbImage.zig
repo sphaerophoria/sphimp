@@ -36,4 +36,3 @@ pub fn deinit(self: StbImage) void {
 pub fn calcHeight(self: StbImage) usize {
     return self.data.len / self.width / 4;
 }
-

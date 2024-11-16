@@ -40,7 +40,7 @@ pub const Transform = struct {
             const row = i / 3;
             const col = i % 3;
 
-            const a_row = a.data[row * 3..(row + 1) * 3];
+            const a_row = a.data[row * 3 .. (row + 1) * 3];
             const b_col = [3]f32{
                 b.data[col],
                 b.data[3 + col],
@@ -68,10 +68,9 @@ pub const Transform = struct {
 
     pub fn translate(x: f32, y: f32) Transform {
         return .{ .data = .{
-            1.0, 0.0,   x,
-            0.0, 1.0,   y,
+            1.0, 0.0, x,
+            0.0, 1.0, y,
             0.0, 0.0, 1.0,
         } };
     }
-
 };

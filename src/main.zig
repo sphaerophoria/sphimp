@@ -472,7 +472,7 @@ pub fn main() !void {
                 .right_click => if (glfw_mouse) try app.clickRightMouse(),
                 .scroll => |amount| {
                     app.scroll(amount);
-                }
+                },
             }
         }
 

@@ -183,7 +183,7 @@ fn renderObjectToTexture(self: *Renderer, alloc: Allocator, objects: *Objects, i
 }
 
 pub const Texture = struct {
-    pub const invalid = Texture { .inner = std.math.maxInt(gl.GLuint) };
+    pub const invalid = Texture{ .inner = std.math.maxInt(gl.GLuint) };
 
     inner: gl.GLuint,
 
@@ -559,4 +559,3 @@ pub const path_fragment_shader =
     \\    fragment = vec4(1.0, 1.0, 1.0, 1.0);
     \\}
 ;
-

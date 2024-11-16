@@ -25,7 +25,7 @@ mouse_pos: lin.Vec2 = .{ 0.0, 0.0 },
 // FIXME: Reset on object selection
 zoom_level: f32 = 1.0,
 panning: bool = false,
-viewport_center: Vec2 = .{0.0, 0.0},
+viewport_center: Vec2 = .{ 0.0, 0.0 },
 selected_object: ObjectId = .{ .value = 0 },
 
 pub fn init(alloc: Allocator, window_width: usize, window_height: usize) !App {
@@ -156,7 +156,7 @@ pub fn setMousePos(self: *App, xpos: f32, ypos: f32) !void {
     }
 
     if (self.panning) {
-        self.viewport_center -= (new_pos - self.mouse_pos) / Vec2{self.zoom_level, self.zoom_level};
+        self.viewport_center -= (new_pos - self.mouse_pos) / Vec2{ self.zoom_level, self.zoom_level };
     }
 }
 
@@ -205,7 +205,6 @@ pub fn createPath(self: *App) !void {
     });
 }
 
-
 const MaskIterator = struct {
     it: Objects.IdIter,
     objects: *Objects,
@@ -252,7 +251,6 @@ fn regenerateAllMasks(self: *App) !void {
     }
 }
 
-
 fn getCompositionObj(self: *App) ?*obj_mod.CompositionObject {
     switch (self.objects.get(self.selected_object).data) {
         .composition => |*c| return c,
@@ -291,12 +289,12 @@ fn clipToObject(self: *App, val: Vec2) Vec2 {
     // FIXME: Kinda duplicated with renderer code which is weird
     // App should own viewport transform probably
     if (window_aspect > obj_aspect) {
-        aspect_aspect_v = Vec2{obj_aspect / window_aspect, 1.0};
+        aspect_aspect_v = Vec2{ obj_aspect / window_aspect, 1.0 };
     } else {
-        aspect_aspect_v = Vec2{1.0, window_aspect / obj_aspect};
+        aspect_aspect_v = Vec2{ 1.0, window_aspect / obj_aspect };
     }
 
-    return (self.viewport_center + val / Vec2{self.zoom_level, self.zoom_level}) / aspect_aspect_v;
+    return (self.viewport_center + val / Vec2{ self.zoom_level, self.zoom_level }) / aspect_aspect_v;
 }
 
 pub fn loadImageToTexture(path: [:0]const u8) !gl.GLuint {
