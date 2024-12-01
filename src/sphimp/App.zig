@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const sphmath = @import("sphmath");
 const gl = @import("sphrender").gl;
 const Renderer = @import("Renderer.zig");
+const DrawerRenderer = @import("DrawerRenderer.zig");
 const obj_mod = @import("object.zig");
 const StbImage = @import("StbImage.zig");
 const sphtext = @import("sphtext");
@@ -36,6 +37,7 @@ shaders: ShaderStorage(ShaderId),
 brushes: ShaderStorage(BrushId),
 fonts: FontStorage,
 renderer: Renderer,
+drawer_renderer: DrawerRenderer,
 view_state: ViewState,
 input_state: InputState = .{},
 io_thread: *IoThread,
@@ -70,6 +72,9 @@ pub fn init(alloc: Allocator, window_width: usize, window_height: usize) !App {
         io_thread_handle.join();
     }
 
+    var drawer_renderer = try DrawerRenderer.init(alloc);
+    errdefer drawer_renderer.deinit(alloc);
+
     return .{
         .alloc = alloc,
         .objects = objects,
@@ -77,6 +82,7 @@ pub fn init(alloc: Allocator, window_width: usize, window_height: usize) !App {
         .brushes = brushes,
         .fonts = fonts,
         .renderer = renderer,
+        .drawer_renderer = drawer_renderer,
         .view_state = .{
             .window_width = window_width,
             .window_height = window_height,
@@ -96,6 +102,7 @@ pub fn deinit(self: *App) void {
     self.renderer.deinit(self.alloc);
     self.shaders.deinit(self.alloc);
     self.brushes.deinit(self.alloc);
+    self.drawer_renderer.deinit(self.alloc);
     self.fonts.deinit(self.alloc);
 }
 
@@ -225,6 +232,12 @@ pub fn render(self: *App) !void {
     defer frame_renderer.deinit();
 
     try frame_renderer.render(self.input_state.selected_object, self.view_state.objectToClipTransform(self.selectedDims()));
+
+    //if (self.input_state.object_drawer_open) {
+    //    // FIXME: Mouse coords what the fuck
+    //    const hovered_obj = try self.drawer_renderer.render(0, 0, self.view_state.window_width, self.view_state.window_height / 3, &frame_renderer, self.input_state.selected_object, &self.objects, self.input_state.mouse_pos_window[0], @as(f32, @floatFromInt(self.view_state.window_height)) - self.input_state.mouse_pos_window[1]);
+    //    self.input_state.drawer_obj = hovered_obj;
+    //}
 }
 
 pub fn setKeyDown(self: *App, key: u8, ctrl: bool) !void {
@@ -275,6 +288,8 @@ pub fn setMousePos(self: *App, xpos: f32, ypos: f32) !void {
     const selected_dims = self.selectedDims();
     const new_pos = self.view_state.clipToObject(Vec2{ new_x, new_y }, selected_dims);
     const input_action = self.input_state.setMousePos(new_pos, &self.objects);
+    self.input_state.mouse_pos_window[0] = xpos;
+    self.input_state.mouse_pos_window[1] = ypos;
 
     try self.handleInputAction(input_action);
 }
@@ -855,7 +870,12 @@ const InputState = struct {
     selected_object: ObjectId = .{ .value = 0 },
     // object coords
     mouse_pos: sphmath.Vec2 = .{ 0.0, 0.0 },
+    mouse_pos_window: sphmath.Vec2 = .{ 0.0, 0.0 },
     panning: bool = false,
+    object_drawer_open: bool = false,
+    // FIXME: Proper abstraction etc. Should not be raw in input state like
+    // this
+    drawer_obj: ?ObjectId = null,
     data: union(enum) {
         composition: CompositionInputState,
         path: ?obj_mod.PathIdx,
@@ -894,6 +914,7 @@ const InputState = struct {
         export_image,
         save,
         pan: Vec2,
+        select_object: ObjectId,
     };
 
     fn selectObject(self: *InputState, id: ObjectId, objects: *Objects) void {
@@ -909,6 +930,10 @@ const InputState = struct {
 
     // FIXME: Objects should be const
     fn setMouseDown(self: *InputState, objects: *obj_mod.Objects, frame_renderer: *Renderer.FrameRenderer) !?InputAction {
+        if (self.object_drawer_open and self.drawer_obj != null) {
+            return .{ .select_object = self.drawer_obj.? };
+        }
+
         switch (self.data) {
             .composition => |*action| {
                 action.* = try self.makeCompositionInputState(objects, frame_renderer, .move);
@@ -938,6 +963,7 @@ const InputState = struct {
             },
             .none => {},
         }
+
         return null;
     }
 
@@ -1117,6 +1143,10 @@ const InputState = struct {
             return .save;
         }
 
+        if (key == '~') {
+            self.object_drawer_open = !self.object_drawer_open;
+        }
+
         if (key == 'e' and ctrl) {
             return .export_image;
         }
@@ -1215,6 +1245,9 @@ fn handleInputAction(self: *App, action: ?InputState.InputAction) !void {
         },
         .pan => |amount| {
             self.view_state.pan(amount);
+        },
+        .select_object => |id| {
+            self.setSelectedObject(id);
         },
     }
 }
