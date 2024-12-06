@@ -72,10 +72,10 @@ pub fn init(alloc: Allocator) !GlyphAtlas {
     const render_context = try sphrender.FramebufferRenderContext.init(texture, null);
     defer render_context.reset();
     gl.glClearColor(
-        -std.math.inf(f32),
-        -std.math.inf(f32),
-        -std.math.inf(f32),
-        -std.math.inf(f32),
+        std.math.inf(f32),
+        std.math.inf(f32),
+        std.math.inf(f32),
+        std.math.inf(f32),
     );
     gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 

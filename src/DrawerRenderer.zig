@@ -1,11 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const sphrender = @import("sphrender");
-const gl = sphrender.gl;
 const obj_mod = @import("object.zig");
 const Renderer = @import("Renderer.zig");
 const sphmath = @import("sphmath");
 const coords = @import("coords.zig");
+const gl = @import("sphrender").gl;
 
 const DrawerRenderer = @This();
 
