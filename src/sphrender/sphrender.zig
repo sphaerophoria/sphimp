@@ -487,3 +487,28 @@ pub const TemporaryViewport = struct {
         );
     }
 };
+
+pub const TemporaryScissor = struct {
+    previous_args: [4]gl.GLint,
+
+    pub fn init() TemporaryScissor {
+        var current = [1]gl.GLint{0} ** 4;
+        gl.glGetIntegerv(gl.GL_SCISSOR_BOX, &current);
+        return .{
+            .previous_args = current,
+        };
+    }
+
+    pub fn set(_: TemporaryScissor, left: gl.GLint, bottom: gl.GLint, width: gl.GLint, height: gl.GLint) void {
+        gl.glScissor(left, bottom, @intCast(width), @intCast(height));
+    }
+
+    pub fn reset(self: TemporaryScissor) void {
+        gl.glScissor(
+            self.previous_args[0],
+            self.previous_args[1],
+            self.previous_args[2],
+            self.previous_args[3],
+        );
+    }
+};
