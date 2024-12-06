@@ -197,7 +197,7 @@ pub const TextReservedIndex = enum {
     }
 };
 
-fn pixToClip(val: usize, max: usize) f32 {
+fn pixToClip(val: u32, max: u32) f32 {
     const val_f: f32 = @floatFromInt(val);
     const max_f: f32 = @floatFromInt(max);
 
