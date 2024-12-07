@@ -103,6 +103,8 @@ pub fn Label(comptime TextRetriever: type) type {
             const text_layout = try shared_label_state.text_renderer.layoutText(alloc, text, shared_label_state.ttf.*);
             defer text_layout.deinit(alloc);
 
+            std.debug.print("text layout: {any}\n" , .{text_layout});
+
             const text_buffer = try shared_label_state.text_renderer.makeTextBuffer(
                 alloc,
                 text_layout,
@@ -164,6 +166,5 @@ fn getText(text_retriever: anytype) []const u8 {
         else => {},
     }
 
-    @compileLog(T);
-    @compileError("text_retriever must be a string or have a getText() function");
+    @compileError("text_retriever must be a string or have a getText() function, type is " ++ T);
 }

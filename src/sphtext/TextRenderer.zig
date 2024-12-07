@@ -43,6 +43,7 @@ pub const TextLayout = struct {
     max_y: i32,
 };
 
+
 pub fn init(alloc: Allocator, point_size: f32) !TextRenderer {
     const program = try sphrender.PlaneRenderProgram.init(alloc, sphrender.plane_vertex_shader, text_fragment_shader, TextReservedIndex);
     errdefer program.deinit(alloc);
@@ -62,32 +63,91 @@ pub fn deinit(self: *TextRenderer, alloc: Allocator) void {
     self.glyph_atlas.deinit(alloc);
 }
 
+const LayoutState = enum {
+    in_word,
+    between_word,
+};
+
+
+const LayoutBox = struct {
+    min_x: i32 = 0,
+    max_x: i32 = 0,
+    min_y: i32 = 0,
+    max_y: i32 = 0,
+};
+
 pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: ttf_mod.Ttf) !TextLayout {
-    var min_x: i32 = 0;
-    var max_x: i32 = 0;
-    var min_y: i32 = 0;
-    var max_y: i32 = 0;
-    var funit_cursor: i64 = 0;
+    var funit_cursor_x: i64 = 0;
+    var funit_cursor_y: i64 = 0;
+    var layout_box = LayoutBox {};
+
+    const available_width = 400;
 
     var glyphs = std.ArrayList(TextLayout.GlyphLoc).init(alloc);
     defer glyphs.deinit();
 
-    const funit_converter = ttf_mod.FunitToPixelConverter.init(self.point_size, @floatFromInt(ttf.head.units_per_em));
-    for (text) |c| {
-        const metrics = ttf_mod.metricsForChar(ttf, c);
-        defer funit_cursor += metrics.advance_width;
+    var word_start: usize = 0;
+    var word_start_glyphs_len: usize = 0;
+    var layout_word_start: LayoutBox = layout_box;
+    var layout_state: LayoutState = .between_word;
 
-        const header = ttf_mod.glyphHeaderForChar(ttf, c) orelse continue;
-        const x1 = funit_cursor + metrics.left_side_bearing;
+    const line_height = ttf_mod.lineHeight(ttf);
+
+    const funit_converter = ttf_mod.FunitToPixelConverter.init(self.point_size, @floatFromInt(ttf.head.units_per_em));
+    var c_idx: usize = 0;
+    while (c_idx < text.len) {
+        const c = text[c_idx];
+
+        if (layout_state == .in_word and std.ascii.isWhitespace(c)) {
+            layout_state = .between_word;
+        } else if (layout_state == .between_word and !std.ascii.isWhitespace(c)) {
+            layout_state = .in_word;
+            word_start = c_idx;
+            word_start_glyphs_len = glyphs.items.len;
+            layout_word_start = layout_box;
+        }
+
+        if (c == '\n') {
+            c_idx += 1;
+            funit_cursor_y -= line_height;
+            funit_cursor_x = 0;
+            continue;
+        }
+
+        const metrics = ttf_mod.metricsForChar(ttf, c);
+
+        const header = ttf_mod.glyphHeaderForChar(ttf, c) orelse {
+            c_idx += 1;
+            funit_cursor_x += metrics.advance_width;
+            continue;
+        };
+        const x1 = funit_cursor_x + metrics.left_side_bearing;
         const x2 = x1 + header.x_max - header.x_min;
 
+        const y1 = funit_cursor_y + header.y_min;
+        const y2 = y1 + header.y_max - header.y_min;
+
         const x1_px = funit_converter.pixelFromFunit(x1);
-        const y1_px = funit_converter.pixelFromFunit(header.y_min);
+        const y1_px = funit_converter.pixelFromFunit(y1);
         // Why not just use x2 or header.y_max? We want to make sure no matter
         // how much the cursor has advanced in funits, we always render the
         // glyph aligned to the same number of pixels.
         const x2_px = x1_px + funit_converter.pixelFromFunit(x2 - x1);
-        const y2_px = y1_px + funit_converter.pixelFromFunit(header.y_max - header.y_min);
+        const y2_px = y1_px + funit_converter.pixelFromFunit(y2 - y1);
+
+        if (x2_px > available_width and funit_cursor_x != 0) {
+            std.debug.print("Word starting at {d} is too large\n", .{word_start});
+            try glyphs.resize(word_start_glyphs_len);
+            c_idx = word_start;
+            layout_box = layout_word_start;
+
+            funit_cursor_y -= line_height;
+            funit_cursor_x = 0;
+
+            continue;
+        }
+
+        funit_cursor_x += metrics.advance_width;
 
         try glyphs.append(.{
             .char = c,
@@ -97,18 +157,19 @@ pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: 
             .pixel_y2 = y2_px,
         });
 
-        min_x = @min(min_x, x1_px);
-        max_x = @max(max_x, x2_px);
-        min_y = @min(min_y, y1_px);
-        max_y = @max(max_y, y2_px);
+        layout_box.min_x = @min(layout_box.min_x, x1_px);
+        layout_box.max_x = @max(layout_box.max_x, x2_px);
+        layout_box.min_y = @min(layout_box.min_y, y1_px);
+        layout_box.max_y = @max(layout_box.max_y, y2_px);
+        c_idx += 1;
     }
 
     return .{
         .glyphs = try glyphs.toOwnedSlice(),
-        .min_x = min_x,
-        .max_x = max_x,
-        .min_y = min_y,
-        .max_y = max_y,
+        .min_x = layout_box.min_x,
+        .max_x = layout_box.max_x,
+        .min_y = layout_box.min_y,
+        .max_y = layout_box.max_y,
     };
 }
 

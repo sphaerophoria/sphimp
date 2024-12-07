@@ -296,6 +296,17 @@ const AppLayoutGenerator = struct {
             );
             try layout.pushWidget(alloc, inc);
         }
+
+        {
+            const label = try gui.label.makeLabel(
+                UiAction,
+                alloc,
+                @embedFile("res/lorem_ipsum.txt"),
+                self.shared_label_state,
+            );
+            try layout.pushWidget(alloc, label);
+        }
+
         return layout;
     }
 };
