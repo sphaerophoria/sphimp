@@ -23,6 +23,7 @@ pub fn Label(comptime TextRetriever: type) type {
         shared: *const SharedLabelState,
         text_retriever: TextRetriever,
         text_hash: u64,
+        wrap_width: u31,
         data: LabelData,
         last_generation: usize = 0,
 
@@ -37,6 +38,7 @@ pub fn Label(comptime TextRetriever: type) type {
             comptime ActionType: type,
             alloc: Allocator,
             text_retreiver_const: TextRetriever,
+            wrap_width: u31,
             label_state: *const SharedLabelState,
         ) !Widget(ActionType) {
             var text_retreiver = text_retreiver_const;
@@ -52,7 +54,7 @@ pub fn Label(comptime TextRetriever: type) type {
 
             const text = getText(&text_retreiver);
 
-            const label_data = try makeTextBufferFromText(alloc, label_state, text);
+            const label_data = try makeTextBufferFromText(alloc, label_state, text, wrap_width);
             errdefer label_data.buffer.deinit();
 
             const text_hash = std.hash_map.hashString(text);
@@ -63,6 +65,7 @@ pub fn Label(comptime TextRetriever: type) type {
                 .data = label_data,
                 .text_retriever = text_retreiver,
                 .text_hash = text_hash,
+                .wrap_width = wrap_width,
             };
 
             return .{
@@ -81,29 +84,28 @@ pub fn Label(comptime TextRetriever: type) type {
             alloc.destroy(self);
         }
 
-        fn update(ctx: ?*anyopaque) !void {
+        fn update(ctx: ?*anyopaque, available_size: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             const current_text = getText(&self.text_retriever);
             const current_hash = std.hash_map.hashString(current_text);
 
             // FIXME: Hash collisions are a real risk here
-            if (self.last_generation == self.shared.generation and current_hash == self.text_hash) {
+            if (self.wrap_width == available_size.width and self.last_generation == self.shared.generation and current_hash == self.text_hash) {
                 return;
             }
 
-            const new_data = try makeTextBufferFromText(self.alloc, self.shared, current_text);
+            const new_data = try makeTextBufferFromText(self.alloc, self.shared, current_text, available_size.width);
 
             self.last_generation = self.shared.generation;
             self.data.buffer.deinit();
             self.data = new_data;
             self.text_hash = current_hash;
+            self.wrap_width = available_size.width;
         }
 
-        fn makeTextBufferFromText(alloc: Allocator, shared_label_state: *const SharedLabelState, text: []const u8) !LabelData {
-            const text_layout = try shared_label_state.text_renderer.layoutText(alloc, text, shared_label_state.ttf.*);
+        fn makeTextBufferFromText(alloc: Allocator, shared_label_state: *const SharedLabelState, text: []const u8, wrap_width: u32) !LabelData {
+            const text_layout = try shared_label_state.text_renderer.layoutText(alloc, text, shared_label_state.ttf.*, wrap_width);
             defer text_layout.deinit(alloc);
-
-            std.debug.print("text layout: {any}\n" , .{text_layout});
 
             const text_buffer = try shared_label_state.text_renderer.makeTextBuffer(
                 alloc,
@@ -139,8 +141,8 @@ pub fn Label(comptime TextRetriever: type) type {
     };
 }
 
-pub fn makeLabel(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, label_state: *const SharedLabelState) !Widget(ActionType) {
-    return Label(@TypeOf(text_retreiver)).init(ActionType, alloc, text_retreiver, label_state);
+pub fn makeLabel(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, wrap_width: u31, label_state: *const SharedLabelState) !Widget(ActionType) {
+    return Label(@TypeOf(text_retreiver)).init(ActionType, alloc, text_retreiver, wrap_width, label_state);
 }
 
 fn getText(text_retriever: anytype) []const u8 {

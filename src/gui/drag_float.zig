@@ -59,6 +59,7 @@ pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) ty
                 ActionType,
                 alloc,
                 LabelAdapter{ .val_retriever = val_retriever },
+                std.math.maxInt(u31),
                 label_state,
             );
 
@@ -110,9 +111,12 @@ pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) ty
             return self.style.size;
         }
 
-        pub fn update(ctx: ?*anyopaque) !void {
+        pub fn update(ctx: ?*anyopaque, _: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            try self.label.update();
+            try self.label.update(.{
+                .width = std.math.maxInt(u31),
+                .height = std.math.maxInt(u31),
+            });
         }
 
         fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {

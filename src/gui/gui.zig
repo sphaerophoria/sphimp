@@ -91,7 +91,7 @@ pub fn Widget(comptime ActionType: type) type {
             deinit: *const fn (ctx: ?*anyopaque, alloc: Allocator) void,
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
-            update: ?*const fn (ctx: ?*anyopaque) anyerror!void = null,
+            update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
             setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType = null,
         };
 
@@ -108,9 +108,9 @@ pub fn Widget(comptime ActionType: type) type {
             return self.vtable.getSize(self.ctx);
         }
 
-        pub fn update(self: Self) !void {
+        pub fn update(self: Self, available_size: PixelSize) !void {
             if (self.vtable.update) |u| {
-                try u(self.ctx);
+                try u(self.ctx, available_size);
             }
         }
         pub fn render(self: Self, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {

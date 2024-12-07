@@ -7,8 +7,8 @@ const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
 const Cursor = struct {
-    x: i32 = 10,
-    y: i32 = 10,
+    x: u31 = 10,
+    y: u31 = 10,
 
     fn reset(self: *Cursor) void {
         self.* = .{};
@@ -55,13 +55,21 @@ pub fn Layout(comptime ActionType: type) type {
             try self.items.append(alloc, .{ .bounds = bounds, .widget = widget });
         }
 
-        pub fn update(self: *Self) !void {
+        pub fn update(self: *Self, window_size: PixelSize) !void {
             self.cursor.reset();
 
             for (self.items.items) |*item| {
-                try item.widget.update();
+                try item.widget.update(self.availableSize(window_size));
                 item.bounds = self.cursor.apply(item.widget.getSize());
             }
+        }
+
+        pub fn availableSize(self: *Self, window_size: PixelSize) PixelSize {
+            return .{
+                .width = window_size.width - self.cursor.x,
+                .height = window_size.height - self.cursor.y,
+            };
+
         }
 
         pub fn dispatchInput(self: *Self, input_state: InputState) ActionType {

@@ -71,7 +71,7 @@ pub fn Button(comptime ActionType: type) type {
             shared: *const SharedButtonState,
             click_action: ActionType,
         ) !Widget(ActionType) {
-            const label = try label_mod.makeLabel(ActionType, alloc, text_retriever, shared.label_state);
+            const label = try label_mod.makeLabel(ActionType, alloc, text_retriever, std.math.maxInt(u31), shared.label_state);
             errdefer label.deinit(alloc);
 
             const label_size = label.getSize();
@@ -122,9 +122,12 @@ pub fn Button(comptime ActionType: type) type {
             return self.size;
         }
 
-        fn update(ctx: ?*anyopaque) !void {
+        fn update(ctx: ?*anyopaque, _: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            try self.label.update();
+            try self.label.update(.{
+                .width = std.math.maxInt(u31),
+                .height = std.math.maxInt(u31),
+            });
         }
 
         fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {

@@ -76,12 +76,10 @@ const LayoutBox = struct {
     max_y: i32 = 0,
 };
 
-pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: ttf_mod.Ttf) !TextLayout {
+pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: ttf_mod.Ttf, wrap_width_px: u32) !TextLayout {
     var funit_cursor_x: i64 = 0;
     var funit_cursor_y: i64 = 0;
     var layout_box = LayoutBox {};
-
-    const available_width = 400;
 
     var glyphs = std.ArrayList(TextLayout.GlyphLoc).init(alloc);
     defer glyphs.deinit();
@@ -135,8 +133,7 @@ pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: 
         const x2_px = x1_px + funit_converter.pixelFromFunit(x2 - x1);
         const y2_px = y1_px + funit_converter.pixelFromFunit(y2 - y1);
 
-        if (x2_px > available_width and funit_cursor_x != 0) {
-            std.debug.print("Word starting at {d} is too large\n", .{word_start});
+        if (x2_px > wrap_width_px and funit_cursor_x != 0) {
             try glyphs.resize(word_start_glyphs_len);
             c_idx = word_start;
             layout_box = layout_word_start;

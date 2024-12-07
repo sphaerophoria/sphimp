@@ -225,7 +225,7 @@ const AppLayoutGenerator = struct {
     shared_button_state: *const SharedButtonState,
     squircle_renderer: *const SquircleRenderer,
 
-    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, app: *App) !Layout(UiAction) {
+    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Layout(UiAction) {
         var layout = Layout(UiAction){};
         errdefer layout.deinit(alloc);
 
@@ -234,6 +234,7 @@ const AppLayoutGenerator = struct {
                 UiAction,
                 alloc,
                 "Hello world",
+                layout.availableSize(window_size).width,
                 self.shared_label_state,
             );
             try layout.pushWidget(alloc, label);
@@ -254,6 +255,7 @@ const AppLayoutGenerator = struct {
                 UiAction,
                 alloc,
                 "float value",
+                layout.availableSize(window_size).width,
                 self.shared_label_state,
             );
             try layout.pushWidget(alloc, label);
@@ -274,6 +276,7 @@ const AppLayoutGenerator = struct {
                 UiAction,
                 alloc,
                 CounterText{ .app = app },
+                layout.availableSize(window_size).width,
                 self.shared_label_state,
             );
             try layout.pushWidget(alloc, label);
@@ -302,6 +305,7 @@ const AppLayoutGenerator = struct {
                 UiAction,
                 alloc,
                 @embedFile("res/lorem_ipsum.txt"),
+                layout.availableSize(window_size).width,
                 self.shared_label_state,
             );
             try layout.pushWidget(alloc, label);
@@ -395,7 +399,10 @@ pub fn main() !void {
         .squircle_renderer = &squircle_renderer,
     };
 
-    var layout = try layout_generator.generateLayoutForApp(alloc, &app);
+    var layout = try layout_generator.generateLayoutForApp(alloc, .{
+        .width = window_width,
+        .height = window_height,
+    }, &app);
     defer layout.deinit(alloc);
 
     while (!glfw.closed()) {
@@ -405,7 +412,11 @@ pub fn main() !void {
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
-        try layout.update();
+        const window_size: PixelSize =  .{
+            .width = @intCast(width),
+            .height = @intCast(height),
+        };
+        try layout.update(window_size);
 
         input_state.update();
         while (glfw.queue.readItem()) |action| {
