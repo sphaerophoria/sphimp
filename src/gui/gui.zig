@@ -6,6 +6,11 @@ pub const label = @import("label.zig");
 pub const drag_float = @import("drag_float.zig");
 pub const button = @import("button.zig");
 pub const layout = @import("layout.zig");
+pub const scrollbar = @import("scrollbar.zig");
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}
 
 pub const WindowAction = union(enum) {
     key_down: struct { key: c_int, ctrl: bool },
@@ -24,12 +29,14 @@ pub const InputState = struct {
     mouse_pos: MousePos = .{ .x = 0, .y = 0 },
     mouse_down_location: ?MousePos = null,
     mouse_released: bool = false,
+    frame_scroll: f32 = 0,
 
-    pub fn update(self: *InputState) void {
+    pub fn startFrame(self: *InputState) void {
         if (self.mouse_released) {
             self.mouse_down_location = null;
             self.mouse_released = false;
         }
+        self.frame_scroll = 0;
     }
 
     pub fn pushInput(self: *InputState, action: WindowAction) void {
@@ -42,6 +49,9 @@ pub const InputState = struct {
             },
             .mouse_up => {
                 self.mouse_released = true;
+            },
+            .scroll => |amount| {
+                self.frame_scroll += amount;
             },
             else => {},
         }

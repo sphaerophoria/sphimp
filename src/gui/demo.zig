@@ -226,7 +226,7 @@ const AppLayoutGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
 
     fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Layout(UiAction) {
-        var layout = Layout(UiAction){};
+        var layout = Layout(UiAction).init(self.squircle_renderer);
         errdefer layout.deinit(alloc);
 
         {
@@ -418,12 +418,12 @@ pub fn main() !void {
         };
         try layout.update(window_size);
 
-        input_state.update();
+        input_state.startFrame();
         while (glfw.queue.readItem()) |action| {
             input_state.pushInput(action);
         }
 
-        const action = layout.dispatchInput(input_state);
+        const action = layout.dispatchInput(input_state, @intCast(width), @intCast(height));
         switch (action) {
             .change_color => |idx| {
                 app.button_state[idx] = !app.button_state[idx];

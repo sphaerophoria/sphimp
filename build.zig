@@ -130,4 +130,13 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "");
     const run_uts = b.addRunArtifact(uts);
     test_step.dependOn(&run_uts.step);
+
+    const gui_uts = builder.addTest(
+        "gui_test",
+        "src/gui/gui.zig",
+    );
+    builder.addAppDependencies(gui_uts);
+
+    const run_gui_uts = b.addRunArtifact(gui_uts);
+    test_step.dependOn(&run_gui_uts.step);
 }
