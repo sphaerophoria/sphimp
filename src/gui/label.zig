@@ -50,7 +50,7 @@ pub fn Label(comptime TextRetriever: type) type {
             const label = try alloc.create(Self);
             errdefer alloc.destroy(label);
 
-            const text = text_retreiver.getText();
+            const text = getText(&text_retreiver);
 
             const label_data = try makeTextBufferFromText(alloc, label_state, text);
             errdefer label_data.buffer.deinit();
@@ -83,8 +83,10 @@ pub fn Label(comptime TextRetriever: type) type {
 
         fn update(ctx: ?*anyopaque) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const current_text = self.text_retriever.getText();
+            const current_text = getText(&self.text_retriever);
             const current_hash = std.hash_map.hashString(current_text);
+
+            // FIXME: Hash collisions are a real risk here
             if (self.last_generation == self.shared.generation and current_hash == self.text_hash) {
                 return;
             }
@@ -101,7 +103,12 @@ pub fn Label(comptime TextRetriever: type) type {
             const text_layout = try shared_label_state.text_renderer.layoutText(alloc, text, shared_label_state.ttf.*);
             defer text_layout.deinit(alloc);
 
-            const text_buffer = try shared_label_state.text_renderer.makeTextBuffer(alloc, text_layout, shared_label_state.ttf.*, shared_label_state.distance_field_generator.*);
+            const text_buffer = try shared_label_state.text_renderer.makeTextBuffer(
+                alloc,
+                text_layout,
+                shared_label_state.ttf.*,
+                shared_label_state.distance_field_generator.*,
+            );
             errdefer text_buffer.deinit();
 
             return .{
@@ -132,4 +139,31 @@ pub fn Label(comptime TextRetriever: type) type {
 
 pub fn makeLabel(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, label_state: *const SharedLabelState) !Widget(ActionType) {
     return Label(@TypeOf(text_retreiver)).init(ActionType, alloc, text_retreiver, label_state);
+}
+
+fn getText(text_retriever: anytype) []const u8 {
+    const Ptr = @TypeOf(text_retriever);
+    const T = @typeInfo(Ptr).Pointer.child;
+
+    switch (@typeInfo(T)) {
+        .Struct => {
+            if (@hasDecl(T, "getText")) {
+                return text_retriever.getText();
+            }
+        },
+        .Pointer => |p| {
+            if (p.child == u8 and p.size == .Slice) {
+                return text_retriever.*;
+            }
+
+            const child_info = @typeInfo(p.child);
+            if (child_info == .Array and child_info.Array.child == u8) {
+                return text_retriever.*;
+            }
+        },
+        else => {},
+    }
+
+    @compileLog(T);
+    @compileError("text_retriever must be a string or have a getText() function");
 }

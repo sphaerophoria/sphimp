@@ -105,13 +105,13 @@ pub fn build(b: *std.Build) !void {
     builder.addGuiDependencies(exe);
     b.installArtifact(exe);
 
-    const gui_test_exe = builder.addExecutable(
-        "gui",
-        "src/main_gui_test.zig",
+    const gui_demo = builder.addExecutable(
+        "gui_demo",
+        "src/gui/demo.zig",
     );
-    gui_test_exe.linkSystemLibrary("glfw");
-    builder.addAppDependencies(gui_test_exe);
-    b.installArtifact(gui_test_exe);
+    gui_demo.linkSystemLibrary("glfw");
+    builder.addAppDependencies(gui_demo);
+    b.installArtifact(gui_demo);
 
     const lint_exe = builder.addExecutable(
         "lint",

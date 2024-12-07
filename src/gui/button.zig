@@ -173,3 +173,13 @@ pub fn Button(comptime ActionType: type) type {
         }
     };
 }
+
+pub fn makeButton(
+    comptime ActionType: type,
+    alloc: Allocator,
+    text_retriever: anytype,
+    shared: *const SharedButtonState,
+    click_action: anytype,
+) !Widget(ActionType) {
+    return Button(ActionType).init(alloc, text_retriever, shared, click_action);
+}
