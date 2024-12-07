@@ -192,6 +192,9 @@ const UiAction = union(enum) {
         idx: usize,
         val: f32,
     },
+    update_ttf_multiplier: f32,
+    update_ttf_offset: f32,
+    update_ttf_size: f32,
     none,
 };
 
@@ -199,6 +202,34 @@ const GlobalStyle = struct {
     const default_color = Color{ .r = 0.3, .g = 0.2, .b = 0.3, .a = 1.0 };
     const hover_color = Color{ .r = 0.6, .g = 0.4, .b = 0.6, .a = 1.0 };
     const click_color = Color{ .r = 0.6, .g = 0.2, .b = 0.6, .a = 1.0 };
+};
+
+const AppGetTtfMultpiler = struct {
+    app: *TextRenderer,
+
+    pub fn getVal(self: AppGetTtfMultpiler) f32 {
+        return self.app.multiplier;
+    }
+};
+
+const AppGetTtfOffset = struct {
+    app: *TextRenderer,
+
+    pub fn getVal(self: AppGetTtfOffset) f32 {
+        return self.app.offset;
+    }
+};
+
+const AppTtfMulGenerator = struct {
+    pub fn generate(_: AppTtfMulGenerator, val: f32) UiAction {
+        return .{ .update_ttf_multiplier = val };
+    }
+};
+
+const AppTtfOffsetGenerator = struct {
+    pub fn generate(_: AppTtfOffsetGenerator, val: f32) UiAction {
+        return .{ .update_ttf_offset = val };
+    }
 };
 
 const AppGetAdjustableFloat = struct {
@@ -223,6 +254,20 @@ const SimpleTextGenerator = struct {
 
     pub fn getText(self: SimpleTextGenerator) []const u8 {
         return self.text;
+    }
+};
+
+const GetTtfSize = struct {
+    text_renderer: *TextRenderer,
+
+    pub fn getVal(self: GetTtfSize) f32 {
+        return self.text_renderer.point_size;
+    }
+};
+
+const UpdateTtfSize = struct {
+    pub fn generate(_: UpdateTtfSize, val: f32) UiAction {
+        return .{ .update_ttf_size = val };
     }
 };
 
@@ -285,6 +330,66 @@ const AppLayoutGenerator = struct {
             try layout.pushWidget(alloc, drag_float);
         }
 
+        {
+            const label = try gui.label.makeLabel(
+                UiAction,
+                alloc,
+                SimpleTextGenerator{ .text = "ttf multiplier" },
+                self.shared_label_state,
+            );
+            try layout.pushWidget(alloc, label);
+
+            const drag_float = try gui.drag_float.makeWidget(
+                alloc,
+                AppGetTtfMultpiler{ .app = self.shared_label_state.text_renderer },
+                AppTtfMulGenerator{},
+                self.drag_style.*,
+                self.shared_label_state,
+                self.squircle_renderer,
+            );
+            try layout.pushWidget(alloc, drag_float);
+        }
+
+        {
+            const label = try gui.label.makeLabel(
+                UiAction,
+                alloc,
+                SimpleTextGenerator{ .text = "ttf offset" },
+                self.shared_label_state,
+            );
+            try layout.pushWidget(alloc, label);
+
+            const drag_float = try gui.drag_float.makeWidget(
+                alloc,
+                AppGetTtfOffset{ .app = self.shared_label_state.text_renderer },
+                AppTtfOffsetGenerator{},
+                self.drag_style.*,
+                self.shared_label_state,
+                self.squircle_renderer,
+            );
+            try layout.pushWidget(alloc, drag_float);
+        }
+
+        {
+            const label = try gui.label.makeLabel(
+                UiAction,
+                alloc,
+                SimpleTextGenerator{ .text = "ttf size" },
+                self.shared_label_state,
+            );
+            try layout.pushWidget(alloc, label);
+
+            const drag_float = try gui.drag_float.makeWidget(
+                alloc,
+                GetTtfSize{ .text_renderer = self.shared_label_state.text_renderer },
+                UpdateTtfSize{},
+                self.drag_style.*,
+                self.shared_label_state,
+                self.squircle_renderer,
+            );
+            try layout.pushWidget(alloc, drag_float);
+        }
+
         return layout;
     }
 };
@@ -318,7 +423,8 @@ pub fn main() !void {
 
     var input_state = InputState{};
 
-    var text_renderer = try TextRenderer.init(alloc, 12.0);
+    const font_size = 9.0;
+    var text_renderer = try TextRenderer.init(alloc, font_size);
     defer text_renderer.deinit(alloc);
 
     const distance_field_renderer = try sphrender.DistanceFieldGenerator.init();
@@ -328,18 +434,26 @@ pub fn main() !void {
     var ttf = try ttf_mod.Ttf.init(alloc, font_data);
     defer ttf.deinit(alloc);
 
-    const shared_label_state = SharedLabelState{
+    const unit: f32 = @floatFromInt(ttf_mod.lineHeightPx(ttf, font_size));
+
+    var shared_label_state = SharedLabelState{
         .text_renderer = &text_renderer,
         .ttf = &ttf,
         .distance_field_generator = &distance_field_renderer,
     };
 
+    const widget_width: u31 = @intFromFloat(unit * 8);
+    const button_height: u31 = @intFromFloat(unit * 2);
+    const slider_height: u31 = @intFromFloat(unit * 1.3);
+    const widget_text_padding: u31 = @intFromFloat(unit / 5);
+    const corner_radius: f32 = unit / 5;
+
     const drag_style = DragFloatStyle{
         .size = .{
-            .width = 100,
-            .height = 25,
+            .width = widget_width,
+            .height = slider_height,
         },
-        .corner_radius = 5,
+        .corner_radius = corner_radius,
         .default_color = GlobalStyle.default_color,
         .hover_color = GlobalStyle.hover_color,
         .active_color = GlobalStyle.click_color,
@@ -354,10 +468,10 @@ pub fn main() !void {
             .default_color = GlobalStyle.default_color,
             .hover_color = GlobalStyle.hover_color,
             .click_color = GlobalStyle.click_color,
-            .desired_width = 100,
-            .desired_height = 50,
-            .corner_radius = 5,
-            .padding = 5,
+            .desired_width = widget_width,
+            .desired_height = button_height,
+            .corner_radius = corner_radius,
+            .padding = widget_text_padding,
         },
         .squircle_renderer = &squircle_renderer,
     };
@@ -394,6 +508,7 @@ pub fn main() !void {
         while (glfw.queue.readItem()) |action| {
             input_state.pushInput(action);
         }
+        layout.render(@intCast(width), @intCast(height));
 
         const action = layout.dispatchInput(input_state);
         switch (action) {
@@ -403,16 +518,20 @@ pub fn main() !void {
             .change_float => |ev| {
                 app.adjustable_float[ev.idx] = ev.val;
             },
+            .update_ttf_multiplier => |mul| {
+                text_renderer.multiplier = mul;
+            },
+            .update_ttf_offset => |offset| {
+                text_renderer.offset = offset;
+            },
+            .update_ttf_size => |size| {
+                text_renderer.point_size = size;
+                try text_renderer.resetAtlas(alloc);
+                shared_label_state.generation += 1;
+            },
             .none => {},
         }
-        layout.render(@intCast(width), @intCast(height));
 
-        //rect1.input(mouse_pos);
-        //rect2.input(mouse_pos);
-        //rect1.render(@intCast(height));
-        //rect2.render(@intCast(height));
-        //triangle.render(@intCast(height));
-        //triangle2.render(@intCast(height));
         glfw.swapBuffers();
     }
 }

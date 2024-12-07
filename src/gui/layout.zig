@@ -3,11 +3,30 @@ const Allocator = std.mem.Allocator;
 const gui = @import("gui.zig");
 const Widget = gui.Widget;
 const PixelBBox = gui.PixelBBox;
+const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
 const Cursor = struct {
     x: i32 = 10,
     y: i32 = 10,
+
+    fn reset(self: *Cursor) void {
+        self.* = .{};
+    }
+
+    fn apply(self: *Cursor, size: PixelSize) PixelBBox {
+        const bounds = PixelBBox{
+            .left = self.x,
+            .right = self.x + size.width,
+            .top = self.y,
+            .bottom = self.y + size.height,
+        };
+
+        const padding = 5;
+
+        self.y += size.height + padding;
+        return bounds;
+    }
 };
 
 pub fn Layout(comptime ActionType: type) type {
@@ -31,24 +50,17 @@ pub fn Layout(comptime ActionType: type) type {
         pub fn pushWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
             errdefer widget.deinit(alloc);
             const size = widget.getSize();
-            const bounds = PixelBBox{
-                .left = self.cursor.x,
-                .right = self.cursor.x + size.width,
-                .top = self.cursor.y,
-                .bottom = self.cursor.y + size.height,
-            };
-
-            const padding = 5;
-
-            self.cursor.y += size.height + padding;
-            errdefer self.cursor.y -= size.height;
+            const bounds = self.cursor.apply(size);
 
             try self.items.append(alloc, .{ .bounds = bounds, .widget = widget });
         }
 
         pub fn update(self: *Self) !void {
-            for (self.items.items) |item| {
+            self.cursor.reset();
+
+            for (self.items.items) |*item| {
                 try item.widget.update();
+                item.bounds = self.cursor.apply(item.widget.getSize());
             }
         }
 

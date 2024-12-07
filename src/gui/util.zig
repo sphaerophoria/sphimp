@@ -1,3 +1,4 @@
+const std = @import("std");
 const gui = @import("gui.zig");
 const sphmath = @import("sphmath");
 const PixelBBox = gui.PixelBBox;
@@ -35,27 +36,28 @@ pub fn widgetToClipScale(widget_size: i32, window_size: i32) f32 {
     return widget_size_f / window_size_f;
 }
 
-pub fn widgetToClipCenterX(widget_center: i32, window_center: i32) f32 {
-    const window_center_f: f32 = @floatFromInt(window_center);
-    const widget_center_f: f32 = @floatFromInt(widget_center);
-    return (widget_center_f - window_center_f) / window_center_f;
+pub fn widgetToClipCenterX(widget_center: f32, window_center: f32) f32 {
+    return (widget_center - window_center) / window_center;
 }
 
-pub fn widgetToClipCenterY(widget_center: i32, window_center: i32) f32 {
-    const window_center_f: f32 = @floatFromInt(window_center);
-    const widget_center_f: f32 = @floatFromInt(widget_center);
-    return -(widget_center_f - window_center_f) / window_center_f;
+pub fn widgetToClipCenterY(widget_center: f32, window_center: f32) f32 {
+    return -(widget_center - window_center) / window_center;
 }
 
 pub fn centerBoxInBounds(box: PixelSize, bounds: PixelBBox) PixelBBox {
-    const width_pad = @divTrunc(bounds.calcWidth() - box.width, 2);
-    const height_pad = @divTrunc(bounds.calcHeight() - box.height, 2);
+    const width_pad = bounds.calcWidth() - box.width;
+    const height_pad = bounds.calcHeight() - box.height;
+    const half_width_pad = @divTrunc(width_pad, 2);
+    const half_height_pad = @divTrunc(height_pad, 2);
 
-    // FIXME: integer division
     var output = bounds;
-    output.left += width_pad;
-    output.right -= width_pad;
-    output.top += height_pad;
-    output.bottom -= height_pad;
+    output.left += half_width_pad;
+    output.right -= half_width_pad + @mod(width_pad, 2);
+    output.top += half_height_pad;
+    output.bottom -= half_height_pad + @mod(height_pad, 2);
+
+    std.debug.assert(output.calcWidth() == box.width);
+    std.debug.assert(output.calcHeight() == box.height);
+
     return output;
 }

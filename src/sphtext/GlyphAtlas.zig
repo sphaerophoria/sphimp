@@ -118,11 +118,6 @@ fn addCharToAtlas(self: *GlyphAtlas, alloc: Allocator, temp_alloc: Allocator, ch
     var canvas, const bbox = try ttf_mod.renderGlyphAt1PxPerFunit(temp_alloc, glyph);
     defer canvas.deinit(temp_alloc);
 
-    const metrics = ttf_mod.metricsForChar(ttf, char);
-    std.debug.print("glyph header: {any}\n", .{glyph.common});
-    std.debug.print("metrics: {any}\n", .{metrics});
-    std.debug.print("canvas width: {d}, bbox width: {d}\n", .{ canvas.width, bbox.width() });
-    std.debug.print("canvas height: {d}, bbox height: {d}\n", .{ canvas.calcHeight(), bbox.height() });
     const width = canvas.width;
     const height: usize = @intCast(canvas.calcHeight());
 

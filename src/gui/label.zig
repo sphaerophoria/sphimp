@@ -14,6 +14,7 @@ pub const SharedLabelState = struct {
     text_renderer: *TextRenderer,
     ttf: *const ttf_mod.Ttf,
     distance_field_generator: *const sphrender.DistanceFieldGenerator,
+    generation: usize = 0,
 };
 
 pub fn Label(comptime TextRetriever: type) type {
@@ -23,6 +24,7 @@ pub fn Label(comptime TextRetriever: type) type {
         text_retriever: TextRetriever,
         text_hash: u64,
         data: LabelData,
+        last_generation: usize = 0,
 
         const LabelData = struct {
             size: PixelSize,
@@ -83,12 +85,13 @@ pub fn Label(comptime TextRetriever: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             const current_text = self.text_retriever.getText();
             const current_hash = std.hash_map.hashString(current_text);
-            if (current_hash == self.text_hash) {
+            if (self.last_generation == self.shared.generation and current_hash == self.text_hash) {
                 return;
             }
 
             const new_data = try makeTextBufferFromText(self.alloc, self.shared, current_text);
 
+            self.last_generation = self.shared.generation;
             self.data.buffer.deinit();
             self.data = new_data;
             self.text_hash = current_hash;

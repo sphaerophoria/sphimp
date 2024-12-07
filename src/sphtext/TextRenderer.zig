@@ -10,6 +10,8 @@ pub const Buffer = sphrender.PlaneRenderProgram.Buffer;
 program: sphrender.PlaneRenderProgram,
 glyph_atlas: GlyphAtlas,
 point_size: f32,
+multiplier: f32 = 0.25,
+offset: f32 = 0.0,
 
 const TextRenderer = @This();
 
@@ -175,6 +177,12 @@ pub fn makeTextBuffer(self: *TextRenderer, alloc: Allocator, text: TextLayout, t
     return buf;
 }
 
+pub fn resetAtlas(self: *TextRenderer, alloc: Allocator) !void {
+    const new_atlas = try GlyphAtlas.init(alloc);
+    self.glyph_atlas.deinit(alloc);
+    self.glyph_atlas = new_atlas;
+}
+
 pub fn render(self: TextRenderer, buf: Buffer, transform: sphmath.Transform) !void {
     self.program.render(buf, &.{}, &.{
         .{
@@ -183,7 +191,11 @@ pub fn render(self: TextRenderer, buf: Buffer, transform: sphmath.Transform) !vo
         },
         .{
             .idx = TextReservedIndex.multiplier.asIndex(),
-            .val = .{ .float = self.point_size * 0.3 },
+            .val = .{ .float = self.point_size * self.multiplier },
+        },
+        .{
+            .idx = TextReservedIndex.offset.asIndex(),
+            .val = .{ .float = self.offset },
         },
     }, transform);
 }
@@ -191,6 +203,7 @@ pub fn render(self: TextRenderer, buf: Buffer, transform: sphmath.Transform) !vo
 pub const TextReservedIndex = enum {
     input_df,
     multiplier,
+    offset,
 
     fn asIndex(self: TextReservedIndex) usize {
         return @intFromEnum(self);
@@ -210,6 +223,7 @@ pub const text_fragment_shader =
     \\out vec4 fragment;
     \\uniform sampler2D input_df;
     \\uniform float multiplier = 100.0;
+    \\uniform float offset = 0.0;
     \\void main()
     \\{
     \\    float distance = texture(input_df, uv).r;

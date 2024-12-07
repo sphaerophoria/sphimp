@@ -70,12 +70,14 @@ pub const PixelBBox = struct {
         return self.bottom - self.top;
     }
 
-    pub fn cx(self: PixelBBox) i32 {
-        return @divTrunc(self.left + self.right, 2);
+    pub fn cx(self: PixelBBox) f32 {
+        const val: f32 = @floatFromInt(self.left + self.right);
+        return val / 2.0;
     }
 
-    pub fn cy(self: PixelBBox) i32 {
-        return @divTrunc(self.top + self.bottom, 2);
+    pub fn cy(self: PixelBBox) f32 {
+        const val: f32 = @floatFromInt(self.top + self.bottom);
+        return val / 2.0;
     }
 
     pub fn containsMousePos(self: PixelBBox, mouse_pos: MousePos) bool {
