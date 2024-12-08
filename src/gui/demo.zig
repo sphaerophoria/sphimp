@@ -179,9 +179,11 @@ const UiAction = union(enum) {
 };
 
 const GlobalStyle = struct {
-    const default_color = Color{ .r = 0.3, .g = 0.2, .b = 0.3, .a = 1.0 };
+    const default_color = Color{ .r = 0.4, .g = 0.3, .b = 0.4, .a = 1.0 };
     const hover_color = Color{ .r = 0.6, .g = 0.4, .b = 0.6, .a = 1.0 };
-    const click_color = Color{ .r = 0.6, .g = 0.2, .b = 0.6, .a = 1.0 };
+    const click_color = Color{ .r = 0.7, .g = 0.3, .b = 0.7, .a = 1.0 };
+    const background_color = Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 };
+    const background_color2 = Color{ .r = 0.2, .g = 0.2, .b = 0.2, .a = 1.0 };
 };
 
 const AppGetAdjustableFloat = struct {
@@ -224,9 +226,10 @@ const AppLayoutGenerator = struct {
     drag_style: *const DragFloatStyle,
     shared_button_state: *const SharedButtonState,
     squircle_renderer: *const SquircleRenderer,
+    scroll_style: *const gui.scrollbar.Style,
 
     fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Layout(UiAction) {
-        var layout = Layout(UiAction).init(self.squircle_renderer);
+        var layout = Layout(UiAction).init(self.scroll_style, self.squircle_renderer);
         errdefer layout.deinit(alloc);
 
         {
@@ -392,10 +395,19 @@ pub fn main() !void {
         .squircle_renderer = &squircle_renderer,
     };
 
+    const scroll_style = gui.scrollbar.Style{
+        .default_color = GlobalStyle.default_color,
+        .hover_color = GlobalStyle.hover_color,
+        .active_color = GlobalStyle.click_color,
+        .gutter_color = GlobalStyle.background_color2,
+        .corner_radius = corner_radius,
+    };
+
     const layout_generator = AppLayoutGenerator{
         .shared_label_state = &shared_label_state,
         .drag_style = &drag_style,
         .shared_button_state = &shared_button_state,
+        .scroll_style = &scroll_style,
         .squircle_renderer = &squircle_renderer,
     };
 

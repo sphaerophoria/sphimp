@@ -3,6 +3,7 @@ const gui = @import("gui.zig");
 const sphmath = @import("sphmath");
 const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
+const MousePos = gui.MousePos;
 
 pub fn ReturnType(F: anytype) type {
     return @typeInfo(@TypeOf(F)).Fn.return_type.?;

@@ -135,7 +135,7 @@ pub fn Button(comptime ActionType: type) type {
 
             var ret: ?ActionType = null;
 
-            const mouse_down_in_box = mouseDownInBox(input_state, bounds);
+            const mouse_down_in_box = bounds.containsOptMousePos(input_state.mouse_down_location);
             const cursor_in_box = bounds.containsMousePos(input_state.mouse_pos);
 
             if (mouse_down_in_box and cursor_in_box) {
@@ -168,11 +168,6 @@ pub fn Button(comptime ActionType: type) type {
             const label_bounds = util.centerBoxInBounds(self.label.getSize(), bounds);
 
             self.label.render(label_bounds, window);
-        }
-
-        fn mouseDownInBox(input_state: InputState, bounds: PixelBBox) bool {
-            const loc = input_state.mouse_down_location orelse return false;
-            return bounds.containsMousePos(loc);
         }
     };
 }

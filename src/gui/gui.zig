@@ -93,6 +93,11 @@ pub const PixelBBox = struct {
     pub fn containsMousePos(self: PixelBBox, mouse_pos: MousePos) bool {
         return self.contains(@intFromFloat(@round(mouse_pos.x)), @intFromFloat(@round(mouse_pos.y)));
     }
+
+    pub fn containsOptMousePos(self: PixelBBox, mouse_pos: ?MousePos) bool {
+        const pos = mouse_pos orelse return false;
+        return self.containsMousePos(pos);
+    }
 };
 
 pub fn Widget(comptime ActionType: type) type {
