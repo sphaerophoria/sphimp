@@ -339,14 +339,14 @@ pub fn main() !void {
 
     var input_state = InputState{};
 
-    const font_size = 12.0;
+    const font_size = 11.0;
     var text_renderer = try TextRenderer.init(alloc, font_size);
     defer text_renderer.deinit(alloc);
 
     const distance_field_renderer = try sphrender.DistanceFieldGenerator.init();
     defer distance_field_renderer.deinit();
 
-    const font_data = @embedFile("res/Hack-Regular.ttf");
+    const font_data = @embedFile("res/NotoSans-Regular.ttf");
     var ttf = try ttf_mod.Ttf.init(alloc, font_data);
     defer ttf.deinit(alloc);
 
@@ -412,7 +412,7 @@ pub fn main() !void {
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
-        const window_size: PixelSize =  .{
+        const window_size: PixelSize = .{
             .width = @intCast(width),
             .height = @intCast(height),
         };
