@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const sphrender = @import("sphrender");
 const util = @import("util.zig");
 const Widget = gui.Widget;
+const Layout = gui.layout.Layout;
 const MousePos = gui.MousePos;
 const PixelSize = gui.PixelSize;
 const PixelBBox = gui.PixelBBox;
@@ -13,30 +14,60 @@ const Color = gui.Color;
 const PlaneRenderProgram = sphrender.PlaneRenderProgram;
 const SquircleRenderer = @import("SquircleRenderer.zig");
 
-pub const ColorUniformIndex = enum {
-    lightness,
+pub const ColorStyle = struct {
+    width: u31,
+    color_preview_height: u31,
+    corner_radius: f32,
+    item_pad: u31,
+    drag_style: gui.drag_float.DragFloatStyle,
+};
 
-    pub fn asIndex(self: ColorUniformIndex) usize {
-        return @intFromEnum(self);
+pub const SharedColorPickerState = struct {
+    style: ColorStyle,
+    renderer: PlaneRenderProgram,
+    vertex_buffer: PlaneRenderProgram.Buffer,
+    label_state: *const gui.label.SharedLabelState,
+    squircle_renderer: *const SquircleRenderer,
+
+    pub fn init(
+        alloc: Allocator,
+        style: ColorStyle,
+        label_state: *const gui.label.SharedLabelState,
+        squircle_renderer: *const SquircleRenderer,
+    ) !SharedColorPickerState {
+        const renderer = try PlaneRenderProgram.init(
+            alloc,
+            sphrender.plane_vertex_shader,
+            color_picker_frag,
+            ColorUniformIndex,
+        );
+        errdefer renderer.deinit(alloc);
+
+        const buffer = renderer.makeDefaultBuffer();
+
+        return .{
+            .style = style,
+            .renderer = renderer,
+            .vertex_buffer = buffer,
+            .label_state = label_state,
+            .squircle_renderer = squircle_renderer,
+        };
+    }
+
+    pub fn deinit(self: *SharedColorPickerState, alloc: Allocator) void {
+        self.renderer.deinit(alloc);
+        self.vertex_buffer.deinit();
     }
 };
 
-const ColorPickerAction = f32;
-const ActionGenerator = struct {
-    pub fn generate(_: ActionGenerator, val: f32) ColorPickerAction {
-        return val;
-    }
-};
-
-pub fn ColorPicker(comptime ActionType: type) type {
+pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
-        size: PixelSize,
-        // FIXME: Shared state
-        renderer: PlaneRenderProgram,
-        vertex_buffer: PlaneRenderProgram.Buffer,
-        lightness: f32 = 1.0,
-        drag_widget: Widget(f32),
+
+        layout: Layout(ColorPickerAction),
+        color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
+        shared: *const SharedColorPickerState,
 
         const widget_vtable = Widget(ActionType).VTable{
             .deinit = Self.deinit,
@@ -46,29 +77,316 @@ pub fn ColorPicker(comptime ActionType: type) type {
             .update = Self.update,
         };
 
-        pub fn init(alloc: Allocator, width: u31, height: u31, drag_float_style: gui.drag_float.DragFloatStyle, label_state: *const gui.label.SharedLabelState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+        pub fn init(
+            alloc: Allocator,
+            color_retriever: ColorRetriever,
+            color_generator: ColorGenerator,
+            shared: *const SharedColorPickerState,
+        ) !Widget(ActionType) {
             const color_picker = try alloc.create(Self);
             errdefer alloc.destroy(color_picker);
 
-            const renderer = try PlaneRenderProgram.init(alloc, sphrender.plane_vertex_shader, color_picker_frag, ColorUniformIndex);
-            errdefer renderer.deinit(alloc);
-
-            const buffer = renderer.makeDefaultBuffer();
-
             color_picker.* = .{
-                .size = .{
-                    .width = width,
-                    .height = height,
+                .color_retriever = color_retriever,
+                .color_generator = color_generator,
+                .layout = .{
+                    .item_pad = shared.style.item_pad,
                 },
-                .renderer = renderer,
-                .vertex_buffer = buffer,
-                .drag_widget = undefined,
+                .shared = shared,
             };
-            color_picker.drag_widget = try gui.drag_float.makeWidget(alloc, &color_picker.lightness, ActionGenerator{}, drag_float_style, label_state, squircle_renderer);
+
+            errdefer color_picker.layout.deinit(alloc, .no_widgets);
+            const widget_gen = WidgetGenerator{
+                .alloc = alloc,
+                .label_state = shared.label_state,
+                .squircle_renderer = shared.squircle_renderer,
+                .shared = shared,
+            };
+
+            const hexagon = try ColorHexagon(ColorRetriever).init(alloc, color_retriever, shared);
+            errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), alloc);
+
+            const lightness_label = try widget_gen.makeLabel("lightness");
+            errdefer lightness_label.deinit(alloc);
+
+            const lightness_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(LightnessGenerator, color_retriever), &ColorPickerAction.makeLightness);
+            errdefer lightness_drag.deinit(alloc);
+
+            const red_label = try widget_gen.makeLabel("red");
+            errdefer red_label.deinit(alloc);
+
+            const red_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(RedGenerator, color_retriever), &ColorPickerAction.makeChangeRed);
+            errdefer red_drag.deinit(alloc);
+
+            const green_label = try widget_gen.makeLabel("green");
+            errdefer green_label.deinit(alloc);
+
+            const green_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(GreenGenerator, color_retriever), &ColorPickerAction.makeChangeGreen);
+            errdefer green_drag.deinit(alloc);
+
+            const blue_label = try widget_gen.makeLabel("blue");
+            errdefer blue_label.deinit(alloc);
+
+            const blue_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(BlueGenerator, color_retriever), &ColorPickerAction.makeChangeBlue);
+            errdefer blue_drag.deinit(alloc);
+
+            const color_preview = try ColorPreview(ColorRetriever).init(
+                alloc,
+                color_retriever,
+                shared,
+            );
+            errdefer color_preview.deinit(alloc);
+
+            try color_picker.layout.pushWidget(alloc, lightness_label);
+            try color_picker.layout.pushWidget(alloc, lightness_drag);
+            try color_picker.layout.pushWidget(alloc, red_label);
+            try color_picker.layout.pushWidget(alloc, red_drag);
+            try color_picker.layout.pushWidget(alloc, green_label);
+            try color_picker.layout.pushWidget(alloc, green_drag);
+            try color_picker.layout.pushWidget(alloc, blue_label);
+            try color_picker.layout.pushWidget(alloc, blue_drag);
+            try color_picker.layout.pushWidget(alloc, hexagon.toWidget(ColorPickerAction));
+            try color_picker.layout.pushWidget(alloc, color_preview);
 
             return .{
                 .vtable = &widget_vtable,
                 .ctx = color_picker,
+            };
+        }
+
+        fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.layout.deinit(alloc, .full);
+            alloc.destroy(self);
+        }
+
+        fn getSize(ctx: ?*anyopaque) PixelSize {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.layout.contentSize();
+        }
+
+        fn update(ctx: ?*anyopaque, bounds: PixelSize) !void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            try self.layout.update(bounds);
+        }
+
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            if (self.layout.dispatchInput(bounds, input_state)) |val| {
+                switch (val) {
+                    .change_lightness => |lightness| {
+                        var color = getColor(&self.color_retriever);
+
+                        const current_lightness = calcLightness(color);
+
+                        const eps = 1e-7;
+                        const ratio = if (current_lightness < eps)
+                            0.0
+                        else
+                            lightness / current_lightness;
+
+                        color.r *= ratio;
+                        color.g *= ratio;
+                        color.b *= ratio;
+
+                        if (current_lightness < eps) {
+                            color.r = lightness;
+                            color.g = lightness;
+                            color.b = lightness;
+                        }
+
+                        return generateAction(ActionType, &self.color_generator, color);
+                    },
+                    .change_color => |color| {
+                        return generateAction(ActionType, &self.color_generator, color);
+                    },
+                    .change_red => |red| {
+                        var color = getColor(&self.color_retriever);
+                        color.r = red;
+                        return generateAction(ActionType, &self.color_generator, color);
+                    },
+                    .change_green => |green| {
+                        var color = getColor(&self.color_retriever);
+                        color.g = green;
+                        return generateAction(ActionType, &self.color_generator, color);
+                    },
+                    .change_blue => |blue| {
+                        var color = getColor(&self.color_retriever);
+                        color.b = blue;
+                        return generateAction(ActionType, &self.color_generator, color);
+                    },
+                }
+            }
+
+            return null;
+        }
+
+        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            self.layout.render(bounds, window_bounds);
+        }
+    };
+}
+
+pub fn makeColorPicker(
+    comptime ActionType: type,
+    alloc: Allocator,
+    color_retriever: anytype,
+    color_generator: anytype,
+    shared: *const SharedColorPickerState,
+) !Widget(ActionType) {
+    return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(
+        alloc,
+        color_retriever,
+        color_generator,
+        shared,
+    );
+}
+
+const ColorUniformIndex = enum {
+    lightness,
+
+    pub fn asIndex(self: ColorUniformIndex) usize {
+        return @intFromEnum(self);
+    }
+};
+
+const ColorPickerAction = union(enum) {
+    change_lightness: f32,
+    change_color: Color,
+    change_red: f32,
+    change_green: f32,
+    change_blue: f32,
+
+    pub fn makeLightness(val: f32) ColorPickerAction {
+        return .{ .change_lightness = val };
+    }
+
+    pub fn makeChangeRed(val: f32) ColorPickerAction {
+        return .{ .change_red = val };
+    }
+
+    pub fn makeChangeGreen(val: f32) ColorPickerAction {
+        return .{ .change_green = val };
+    }
+
+    pub fn makeChangeBlue(val: f32) ColorPickerAction {
+        return .{ .change_blue = val };
+    }
+};
+
+fn LightnessGenerator(comptime ColorRetriever: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+
+        const Self = @This();
+
+        pub fn getVal(self: Self) f32 {
+            const color = getColor(&self.color_retriever);
+            return calcLightness(color);
+        }
+    };
+}
+
+fn RedGenerator(comptime ColorRetriever: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+
+        const Self = @This();
+
+        pub fn getVal(self: Self) f32 {
+            const color = getColor(&self.color_retriever);
+            return color.r;
+        }
+    };
+}
+
+fn BlueGenerator(comptime ColorRetriever: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+
+        const Self = @This();
+
+        pub fn getVal(self: Self) f32 {
+            const color = getColor(&self.color_retriever);
+            return color.b;
+        }
+    };
+}
+
+fn GreenGenerator(comptime ColorRetriever: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+
+        const Self = @This();
+
+        pub fn getVal(self: Self) f32 {
+            const color = getColor(&self.color_retriever);
+            return color.g;
+        }
+    };
+}
+
+fn makeColorRetrieverDependent(comptime T: anytype, retriever: anytype) T(@TypeOf(retriever)) {
+    return .{
+        .color_retriever = retriever,
+    };
+}
+
+const WidgetGenerator = struct {
+    alloc: Allocator,
+    label_state: *const gui.label.SharedLabelState,
+    squircle_renderer: *const SquircleRenderer,
+    shared: *const SharedColorPickerState,
+
+    fn makeLabel(self: WidgetGenerator, name: []const u8) !Widget(ColorPickerAction) {
+        return gui.label.makeLabel(
+            ColorPickerAction,
+            self.alloc,
+            name,
+            std.math.maxInt(u31),
+            self.label_state,
+        );
+    }
+
+    fn makeFloatDrag(self: WidgetGenerator, val: anytype, generator: anytype) !Widget(ColorPickerAction) {
+        return gui.drag_float.makeWidget(
+            ColorPickerAction,
+            self.alloc,
+            val,
+            generator,
+            &self.shared.style.drag_style,
+            self.label_state,
+            self.squircle_renderer,
+        );
+    }
+};
+
+pub fn ColorPreview(comptime ColorRetriever: type) type {
+    return struct {
+        const Self = @This();
+        color_retriever: ColorRetriever,
+        shared: *const SharedColorPickerState,
+
+        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, shared: *const SharedColorPickerState) !Widget(ColorPickerAction) {
+            const preview = try alloc.create(Self);
+            errdefer alloc.destroy(preview);
+
+            preview.* = .{
+                .color_retriever = color_retriever,
+                .shared = shared,
+            };
+
+            const widget_vtable = Widget(ColorPickerAction).VTable{
+                .deinit = Self.deinit,
+                .render = Self.render,
+                .getSize = Self.getSize,
+            };
+
+            return .{
+                .vtable = &widget_vtable,
+                .ctx = preview,
             };
         }
 
@@ -80,29 +398,121 @@ pub fn ColorPicker(comptime ActionType: type) type {
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return .{
-                .width = self.size.width,
-                .height = self.size.height + self.drag_widget.getSize().height,
+                .width = self.shared.style.width,
+                .height = self.shared.style.color_preview_height,
             };
         }
 
-        fn update(ctx: ?*anyopaque, window_size: PixelSize) !void {
+        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            try self.drag_widget.update(window_size);
+
+            const transform = util.widgetToClipTransform(bounds, window_bounds);
+            const color = getColor(&self.color_retriever);
+            self.shared.squircle_renderer.render(
+                color,
+                self.shared.style.corner_radius,
+                bounds,
+                transform,
+            );
+        }
+    };
+}
+
+fn generateAction(comptime ActionType: type, color_generator: anytype, color: Color) ActionType {
+    const Ptr = @TypeOf(color_generator);
+    const T = @typeInfo(Ptr).Pointer.child;
+
+    switch (@typeInfo(T)) {
+        .Pointer => |p| {
+            switch (@typeInfo(p.child)) {
+                .Fn => {
+                    return color_generator.*(color);
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    @compileError("Failed to generate action" ++ @typeName(T));
+}
+
+fn calcLightness(color: Color) f32 {
+    var current_lightness = @max(color.r, color.g);
+    current_lightness = @max(current_lightness, color.b);
+    return current_lightness;
+}
+
+fn getColor(color_retriever: anytype) Color {
+    const Ptr = @TypeOf(color_retriever);
+    const T = @typeInfo(Ptr).Pointer.child;
+
+    switch (@typeInfo(T)) {
+        .Pointer => {
+            return color_retriever.*.*;
+        },
+        else => {},
+    }
+
+    @compileError("Cannot get color from type " ++ T);
+}
+
+fn ColorHexagon(comptime ColorRetriever: type) type {
+    return struct {
+        const Self = @This();
+        color_retriever: ColorRetriever,
+        shared: *const SharedColorPickerState,
+
+        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, shared: *const SharedColorPickerState) !*Self {
+            const color_picker = try alloc.create(Self);
+            errdefer alloc.destroy(color_picker);
+
+            color_picker.* = .{
+                .color_retriever = color_retriever,
+                .shared = shared,
+            };
+
+            return color_picker;
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            const drag_bounds = getDragBounds(self.drag_widget, bounds);
-            if (self.drag_widget.setInputState(drag_bounds, input_state)) |val| {
-                self.lightness = val;
-            }
+        fn toWidget(self: *Self, comptime ActionType: type) Widget(ActionType) {
+            const widget_vtable = Widget(ActionType).VTable{
+                .deinit = Self.deinit,
+                .render = Self.render,
+                .getSize = Self.getSize,
+                .setInputState = Self.setInputState,
+                .update = Self.update,
+            };
 
-            var color_bounds = bounds;
-            color_bounds.top += drag_bounds.calcHeight();
-            if (input_state.mouse_down_location) |loc| {
-                if (pixelToRgb(self.lightness, loc, color_bounds)) |color| {
-                    std.debug.print("color: {any}\n", .{color});
-                }
+            return .{
+                .vtable = &widget_vtable,
+                .ctx = self,
+            };
+        }
+
+        fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            alloc.destroy(self);
+        }
+
+        fn getSize(ctx: ?*anyopaque) PixelSize {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return .{
+                .width = self.shared.style.width,
+                .height = self.shared.style.width,
+            };
+        }
+
+        fn update(ctx: ?*anyopaque, _: PixelSize) !void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            _ = self;
+        }
+
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ColorPickerAction {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const prev_color = getColor(&self.color_retriever);
+                const color = pixelToRgb(calcLightness(prev_color), input_state.mouse_pos, bounds);
+                return .{ .change_color = color };
             }
 
             return null;
@@ -110,16 +520,12 @@ pub fn ColorPicker(comptime ActionType: type) type {
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            const lightness = calcLightness(getColor(&self.color_retriever));
 
-            const drag_bounds = getDragBounds(self.drag_widget, bounds);
-            self.drag_widget.render(drag_bounds, window_bounds);
-
-            var remaining = bounds;
-            remaining.top += drag_bounds.calcHeight();
-            const transform = util.widgetToClipTransform(remaining, window_bounds);
-            self.renderer.render(self.vertex_buffer, &.{}, &.{.{
+            const transform = util.widgetToClipTransform(bounds, window_bounds);
+            self.shared.renderer.render(self.shared.vertex_buffer, &.{}, &.{.{
                 .idx = ColorUniformIndex.lightness.asIndex(),
-                .val = .{ .float = self.lightness },
+                .val = .{ .float = lightness },
             }}, transform);
         }
     };
@@ -141,7 +547,7 @@ fn bestAxis(center_offs: sphmath.Vec2) sphmath.Vec3 {
 }
 
 // Mirror of glsl code
-fn pixelToRgb(lightness: f32, pixel_pos: MousePos, bounds: PixelBBox) ?Color {
+fn pixelToRgb(lightness: f32, pixel_pos: MousePos, bounds: PixelBBox) Color {
     const uv = sphmath.Vec2{
         (pixel_pos.x - @as(f32, @floatFromInt(bounds.left))) / @as(f32, @floatFromInt(bounds.calcWidth())),
         -(pixel_pos.y - @as(f32, @floatFromInt(bounds.bottom))) / @as(f32, @floatFromInt(bounds.calcWidth())),
@@ -160,22 +566,20 @@ fn pixelToRgb(lightness: f32, pixel_pos: MousePos, bounds: PixelBBox) ?Color {
     const surface_z = white_point[2] + surface_scalar * white_to_axis[2];
     const surface_point = sphmath.Vec3{ center_offs[0], center_offs[1], surface_z };
 
-    const r = sphmath.dot(surface_point, hsv_rgb_axis.r);
-    const g = sphmath.dot(surface_point, hsv_rgb_axis.g);
-    const b = sphmath.dot(surface_point, hsv_rgb_axis.b);
-    if (b < 0.0 or g < 0.0 or r < 0.0) {
-        return null;
-    }
-    return Color{ .r = r * lightness, .g = g * lightness, .b = b * lightness, .a = 1.0 };
-}
+    var r = sphmath.dot(surface_point, hsv_rgb_axis.r);
+    var g = sphmath.dot(surface_point, hsv_rgb_axis.g);
+    var b = sphmath.dot(surface_point, hsv_rgb_axis.b);
 
-fn getDragBounds(drag_widget: Widget(f32), bounds: PixelBBox) PixelBBox {
-    var drag_bounds = bounds;
-    const drag_size = drag_widget.getSize();
-    drag_bounds.bottom = bounds.top + drag_size.height;
-    drag_bounds.right = bounds.left + drag_size.width;
+    // Here we diverge from the GLSL code a little bit. In GLSL we want to
+    // discard out of bounds items, however we want to snap to the closest edge
+    r = std.math.clamp(r, 0.0, 1.0);
+    g = std.math.clamp(g, 0.0, 1.0);
+    b = std.math.clamp(b, 0.0, 1.0);
 
-    return drag_bounds;
+    r *= lightness;
+    g *= lightness;
+    b *= lightness;
+    return Color{ .r = r, .g = g, .b = b, .a = 1.0 };
 }
 
 const ColorAxis = struct {
@@ -315,8 +719,9 @@ pub const color_picker_frag = std.fmt.comptimePrint(
     \\    // and the cube are the same
     \\    if (b < 0.0 || g < 0.0 || r < 0.0) {{
     \\        discard;
+    \\    }} else {{
+    \\        fragment = vec4(r * lightness, g * lightness, b * lightness, 1.0);
     \\    }}
-    \\    fragment = vec4(r * lightness, g * lightness, b * lightness, 1.0);
     \\}}
 , .{
     hsv_rgb_axis.b[0],

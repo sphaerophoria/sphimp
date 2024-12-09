@@ -21,6 +21,8 @@ const PixelSize = gui.PixelSize;
 const WindowAction = gui.WindowAction;
 const Color = gui.Color;
 const Layout = gui.layout.Layout;
+const LayoutStyle = gui.layout.LayoutStyle;
+const ScrollView = gui.layout.ScrollView;
 
 const c = @cImport({
     @cInclude("GLFW/glfw3.h");
@@ -165,25 +167,49 @@ const App = struct {
     button_state: [2]bool = .{ true, false },
     adjustable_float: [2]f32 = .{ 1.0, 1.0 },
     counter: i64 = 0,
+    hightlight_color: Color = GlobalStyle.default_color,
 };
 
 const UiAction = union(enum) {
-    change_color: usize,
+    change_button_state: usize,
     change_float: struct {
         idx: usize,
         val: f32,
     },
     increment_counter,
     decrement_counter,
-    none,
+    change_highlight_color: Color,
+
+    fn makeChangeHighlightColor(color: Color) UiAction {
+        return .{ .change_highlight_color = color };
+    }
 };
 
 const GlobalStyle = struct {
-    const default_color = Color{ .r = 0.4, .g = 0.3, .b = 0.4, .a = 1.0 };
-    const hover_color = Color{ .r = 0.6, .g = 0.4, .b = 0.6, .a = 1.0 };
-    const click_color = Color{ .r = 0.7, .g = 0.3, .b = 0.7, .a = 1.0 };
+    const default_color = Color{ .r = 0.75, .g = 0.43, .b = 0.6, .a = 1.0 };
+    const hover_color = hoverColor(default_color);
+    const active_color = activeColor(default_color);
     const background_color = Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 };
     const background_color2 = Color{ .r = 0.2, .g = 0.2, .b = 0.2, .a = 1.0 };
+
+    fn hoverColor(default: Color) Color {
+        return .{
+            .r = default.r * 3.0 / 2.0,
+            .g = default.g * 3.0 / 2.0,
+            .b = default.b * 3.0 / 2.0,
+            .a = default.a,
+        };
+    }
+
+    fn activeColor(default: Color) Color {
+        // FIXME: Make more saturated
+        return .{
+            .r = default.r * 4.0 / 2.0,
+            .g = default.g * 4.0 / 2.0,
+            .b = default.b * 4.0 / 2.0,
+            .a = default.a,
+        };
+    }
 };
 
 const AppGetAdjustableFloat = struct {
@@ -227,10 +253,15 @@ const AppLayoutGenerator = struct {
     shared_button_state: *const SharedButtonState,
     squircle_renderer: *const SquircleRenderer,
     scroll_style: *const gui.scrollbar.Style,
+    shared_color: *const gui.color_picker.SharedColorPickerState,
+    layout_item_pad: u31,
 
-    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Layout(UiAction) {
-        var layout = Layout(UiAction).init(self.scroll_style, self.squircle_renderer);
-        errdefer layout.deinit(alloc);
+    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !ScrollView(UiAction) {
+        var layout = Layout(UiAction){
+            .item_pad = self.layout_item_pad,
+        };
+
+        errdefer layout.deinit(alloc, .full);
 
         {
             const label = try gui.label.makeLabel(
@@ -240,6 +271,7 @@ const AppLayoutGenerator = struct {
                 layout.availableSize(window_size).width,
                 self.shared_label_state,
             );
+            // FIXME: leaks
             try layout.pushWidget(alloc, label);
         }
 
@@ -248,7 +280,7 @@ const AppLayoutGenerator = struct {
                 alloc,
                 AppButtonTextGenerator{ .app = app, .idx = idx },
                 self.shared_button_state,
-                .{ .change_color = idx },
+                .{ .change_button_state = idx },
             );
             try layout.pushWidget(alloc, button);
         }
@@ -264,10 +296,11 @@ const AppLayoutGenerator = struct {
             try layout.pushWidget(alloc, label);
 
             const drag_float = try gui.drag_float.makeWidget(
+                UiAction,
                 alloc,
                 AppGetAdjustableFloat{ .app = app, .idx = i },
                 AppDragGenerator{ .idx = i },
-                self.drag_style.*,
+                self.drag_style,
                 self.shared_label_state,
                 self.squircle_renderer,
             );
@@ -304,7 +337,13 @@ const AppLayoutGenerator = struct {
         }
 
         {
-            const color_picker = try gui.color_picker.ColorPicker(UiAction).init(alloc, 200, 200, self.drag_style.*, self.shared_label_state, self.squircle_renderer);
+            const color_picker = try gui.color_picker.makeColorPicker(
+                UiAction,
+                alloc,
+                &app.hightlight_color,
+                &UiAction.makeChangeHighlightColor,
+                self.shared_color,
+            );
             try layout.pushWidget(alloc, color_picker);
         }
 
@@ -319,7 +358,7 @@ const AppLayoutGenerator = struct {
             try layout.pushWidget(alloc, label);
         }
 
-        return layout;
+        return ScrollView(UiAction).init(layout, self.scroll_style, self.squircle_renderer);
     }
 };
 
@@ -372,7 +411,7 @@ pub fn main() !void {
     const widget_text_padding: u31 = @intFromFloat(unit / 5);
     const corner_radius: f32 = unit / 5;
 
-    const drag_style = DragFloatStyle{
+    var drag_style = DragFloatStyle{
         .size = .{
             .width = widget_width,
             .height = slider_height,
@@ -380,18 +419,18 @@ pub fn main() !void {
         .corner_radius = corner_radius,
         .default_color = GlobalStyle.default_color,
         .hover_color = GlobalStyle.hover_color,
-        .active_color = GlobalStyle.click_color,
+        .active_color = GlobalStyle.active_color,
     };
 
     const squircle_renderer = try SquircleRenderer.init(alloc);
     defer squircle_renderer.deinit(alloc);
 
-    const shared_button_state = SharedButtonState{
+    var shared_button_state = SharedButtonState{
         .label_state = &shared_label_state,
         .style = .{
             .default_color = GlobalStyle.default_color,
             .hover_color = GlobalStyle.hover_color,
-            .click_color = GlobalStyle.click_color,
+            .click_color = GlobalStyle.active_color,
             .desired_width = widget_width,
             .desired_height = button_height,
             .corner_radius = corner_radius,
@@ -400,14 +439,28 @@ pub fn main() !void {
         .squircle_renderer = &squircle_renderer,
     };
 
-    const scroll_style = gui.scrollbar.Style{
+    var scroll_style = gui.scrollbar.Style{
         .default_color = GlobalStyle.default_color,
         .hover_color = GlobalStyle.hover_color,
-        .active_color = GlobalStyle.click_color,
+        .active_color = GlobalStyle.active_color,
         .gutter_color = GlobalStyle.background_color2,
         .corner_radius = corner_radius,
         .width = @intFromFloat(unit * 0.75),
     };
+
+    var color_picker_state = try gui.color_picker.SharedColorPickerState.init(
+        alloc,
+        gui.color_picker.ColorStyle{
+            .width = widget_width,
+            .color_preview_height = slider_height,
+            .item_pad = widget_text_padding,
+            .corner_radius = corner_radius,
+            .drag_style = drag_style,
+        },
+        &shared_label_state,
+        &squircle_renderer,
+    );
+    defer color_picker_state.deinit(alloc);
 
     const layout_generator = AppLayoutGenerator{
         .shared_label_state = &shared_label_state,
@@ -415,6 +468,8 @@ pub fn main() !void {
         .shared_button_state = &shared_button_state,
         .scroll_style = &scroll_style,
         .squircle_renderer = &squircle_renderer,
+        .layout_item_pad = @intFromFloat(unit / 2.0),
+        .shared_color = &color_picker_state,
     };
 
     var layout = try layout_generator.generateLayoutForApp(alloc, .{
@@ -430,10 +485,18 @@ pub fn main() !void {
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
-        const window_size: PixelSize = .{
-            .width = @intCast(width),
-            .height = @intCast(height),
+        const window_bounds = PixelBBox{
+            .top = 0,
+            .bottom = @intCast(height),
+            .left = 0,
+            .right = @intCast(width),
         };
+
+        const window_size = PixelSize{
+            .width = window_bounds.calcWidth(),
+            .height = window_bounds.calcHeight(),
+        };
+
         try layout.update(window_size);
 
         input_state.startFrame();
@@ -441,20 +504,43 @@ pub fn main() !void {
             input_state.pushInput(action);
         }
 
-        const action = layout.dispatchInput(input_state, @intCast(width), @intCast(height));
-        switch (action) {
-            .change_color => |idx| {
-                app.button_state[idx] = !app.button_state[idx];
-            },
-            .change_float => |ev| {
-                app.adjustable_float[ev.idx] = ev.val;
-            },
-            .increment_counter => app.counter += 1,
-            .decrement_counter => app.counter -= 1,
-            .none => {},
+        const action_opt = layout.dispatchInput(input_state, window_bounds);
+        if (action_opt) |action| {
+            switch (action) {
+                .change_button_state => |idx| {
+                    app.button_state[idx] = !app.button_state[idx];
+                },
+                .change_float => |ev| {
+                    app.adjustable_float[ev.idx] = ev.val;
+                },
+                .increment_counter => app.counter += 1,
+                .decrement_counter => app.counter -= 1,
+                .change_highlight_color => |color| {
+                    const new_hover = GlobalStyle.hoverColor(color);
+                    const new_active = GlobalStyle.activeColor(color);
+
+                    drag_style.default_color = color;
+                    drag_style.hover_color = new_hover;
+                    drag_style.active_color = new_active;
+
+                    shared_button_state.style.default_color = color;
+                    shared_button_state.style.hover_color = new_hover;
+                    shared_button_state.style.click_color = new_active;
+
+                    scroll_style.default_color = color;
+                    scroll_style.hover_color = new_hover;
+                    scroll_style.active_color = new_active;
+
+                    color_picker_state.style.drag_style.default_color = color;
+                    color_picker_state.style.drag_style.hover_color = new_hover;
+                    color_picker_state.style.drag_style.active_color = new_active;
+
+                    app.hightlight_color = color;
+                },
+            }
         }
 
-        layout.render(@intCast(width), @intCast(height));
+        layout.render(window_bounds, window_bounds);
 
         glfw.swapBuffers();
     }

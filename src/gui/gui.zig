@@ -73,12 +73,12 @@ pub const PixelBBox = struct {
         return x >= self.left and x <= self.right and y <= self.bottom and y >= self.top;
     }
 
-    pub fn calcWidth(self: PixelBBox) i32 {
-        return self.right - self.left;
+    pub fn calcWidth(self: PixelBBox) u31 {
+        return @intCast(self.right - self.left);
     }
 
-    pub fn calcHeight(self: PixelBBox) i32 {
-        return self.bottom - self.top;
+    pub fn calcHeight(self: PixelBBox) u31 {
+        return @intCast(self.bottom - self.top);
     }
 
     pub fn cx(self: PixelBBox) f32 {

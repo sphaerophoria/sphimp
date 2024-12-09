@@ -43,10 +43,6 @@ pub fn Button(comptime ActionType: type) type {
 
         click_action: ActionType,
 
-        default_color: Color,
-        hover_color: Color,
-        click_color: Color,
-
         shared: *const SharedButtonState,
 
         state: enum {
@@ -99,9 +95,6 @@ pub fn Button(comptime ActionType: type) type {
                 .size = size,
                 .label = label,
                 .click_action = click_action,
-                .click_color = shared.style.click_color,
-                .default_color = shared.style.default_color,
-                .hover_color = shared.style.hover_color,
                 .shared = shared,
             };
 
@@ -157,9 +150,9 @@ pub fn Button(comptime ActionType: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             const color = switch (self.state) {
-                .none => self.default_color,
-                .hovered => self.hover_color,
-                .clicked => self.click_color,
+                .none => self.shared.style.default_color,
+                .hovered => self.shared.style.hover_color,
+                .clicked => self.shared.style.click_color,
             };
 
             const transform = util.widgetToClipTransform(bounds, window);

@@ -20,13 +20,12 @@ pub const DragFloatStyle = struct {
     corner_radius: f32 = 1.0,
 };
 
-pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) type {
-    const ActionType = util.ReturnType(ActionGenerator.generate);
+pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptime ActionGenerator: type) type {
     return struct {
         val_retriever: ValRetriever,
         label: Widget(ActionType),
         drag_generator: ActionGenerator,
-        style: DragFloatStyle,
+        style: *const DragFloatStyle,
         squircle_renderer: *const SquircleRenderer,
         state: union(enum) {
             default,
@@ -54,7 +53,7 @@ pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) ty
             }
         };
 
-        pub fn init(alloc: Allocator, val_retriever: ValRetriever, on_drag: ActionGenerator, style: DragFloatStyle, label_state: *const SharedLabelState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+        pub fn init(alloc: Allocator, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const SharedLabelState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
             const label = try gui.label.makeLabel(
                 ActionType,
                 alloc,
@@ -133,7 +132,7 @@ pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) ty
                     const offs = input_state.mouse_pos.x - down_loc.x;
 
                     const start_val = self.state.dragging;
-                    ret = self.drag_generator.generate(start_val + offs * 0.01);
+                    ret = generateAction(ActionType, &self.drag_generator, start_val + offs * 0.01);
                 }
             } else if (widget_bounds.containsMousePos(input_state.mouse_pos)) {
                 self.state = .hovered;
@@ -147,14 +146,15 @@ pub fn DragFloat(comptime ValRetriever: type, comptime ActionGenerator: type) ty
 }
 
 pub fn makeWidget(
+    comptime ActionType: type,
     alloc: Allocator,
     val_retriever: anytype,
     on_drag: anytype,
-    style: DragFloatStyle,
+    style: *const DragFloatStyle,
     label_state: *const SharedLabelState,
     squircle_renderer: *const SquircleRenderer,
-) !Widget(util.ReturnType(@TypeOf(on_drag).generate)) {
-    return DragFloat(@TypeOf(val_retriever), @TypeOf(on_drag)).init(
+) !Widget(ActionType) {
+    return DragFloat(ActionType, @TypeOf(val_retriever), @TypeOf(on_drag)).init(
         alloc,
         val_retriever,
         on_drag,
@@ -162,6 +162,28 @@ pub fn makeWidget(
         label_state,
         squircle_renderer,
     );
+}
+
+fn generateAction(comptime ActionType: type, action_generator: anytype, val: f32) ActionType {
+    const Ptr = @TypeOf(action_generator);
+    const T = @typeInfo(Ptr).Pointer.child;
+
+    switch (@typeInfo(T)) {
+        .Struct => {
+            if (@hasDecl(T, "generate")) {
+                return action_generator.generate(val);
+            }
+        },
+        .Pointer => |p| {
+            switch (@typeInfo(p.child)) {
+                .Fn => {
+                    return action_generator.*(val);
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
 }
 
 fn getVal(val_retreiver: anytype) f32 {
@@ -183,11 +205,9 @@ fn getVal(val_retreiver: anytype) f32 {
             if (f.bits == 32) {
                 return val_retreiver.*;
             }
-
         },
         else => {},
     }
 
     @compileError("val_retreiver must be a f32 or a struct with a getVal() method that returns an f32. Instead it is " ++ T);
-
 }

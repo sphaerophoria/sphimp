@@ -43,7 +43,6 @@ pub const TextLayout = struct {
     max_y: i32,
 };
 
-
 pub fn init(alloc: Allocator, point_size: f32) !TextRenderer {
     const program = try sphrender.PlaneRenderProgram.init(alloc, sphrender.plane_vertex_shader, text_fragment_shader, TextReservedIndex);
     errdefer program.deinit(alloc);
@@ -67,7 +66,6 @@ const LayoutState = enum {
     in_word,
     between_word,
 };
-
 
 const LayoutBox = struct {
     min_x: i32 = 0,
@@ -119,7 +117,6 @@ const LayoutHelper = struct {
             .funit_converter = ttf_mod.FunitToPixelConverter.init(font_size, @floatFromInt(ttf.head.units_per_em)),
             .glyphs = std.ArrayList(TextLayout.GlyphLoc).init(alloc),
         };
-
     }
 
     fn nextChar(self: *LayoutHelper) ?u8 {
