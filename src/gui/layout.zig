@@ -185,6 +185,14 @@ pub fn Layout(comptime ActionType: type) type {
             no_widgets,
         };
 
+        const widget_vtable = Widget(ActionType).VTable {
+            .deinit = Self.widgetDeinit,
+            .render = Self.widgetRender,
+            .getSize = Self.widgetGetSize,
+            .update = Self.widgetUpdate,
+            .setInputState = Self.widgetSetInputState,
+        };
+
         pub fn deinit(self: *Self, alloc: Allocator, deinit_type: LayoutDeinitType) void {
             if (deinit_type == .full) {
                 for (self.items.items) |item| {
@@ -194,12 +202,28 @@ pub fn Layout(comptime ActionType: type) type {
             self.items.deinit(alloc);
         }
 
+        fn widgetDeinit(ctx: ?*anyopaque, alloc: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.deinit(alloc, .full);
+            alloc.destroy(self);
+        }
+
         pub fn pushWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
             errdefer widget.deinit(alloc);
             const size = widget.getSize();
             const bounds = self.cursor.apply(size, self.item_pad);
 
             try self.items.append(alloc, .{ .bounds = bounds, .widget = widget });
+            self.max_width = @max(self.max_width, bounds.calcWidth());
+        }
+
+        pub fn toWidget(self: Self, alloc: Allocator) !Widget(ActionType) {
+            const ctx = try alloc.create(Layout(ActionType));
+            ctx.* = self;
+            return .{
+                .ctx = ctx,
+                .vtable = &widget_vtable,
+            };
         }
 
         pub fn update(self: *Self, container_size: PixelSize) !void {
@@ -216,6 +240,11 @@ pub fn Layout(comptime ActionType: type) type {
             }
 
             self.max_width = max_width;
+        }
+
+        fn widgetUpdate(ctx: ?*anyopaque, container_size: PixelSize) !void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            try self.update(container_size);
         }
 
         pub fn availableSize(self: *Self, container_size: PixelSize) PixelSize {
@@ -253,6 +282,11 @@ pub fn Layout(comptime ActionType: type) type {
             return ret;
         }
 
+        fn widgetSetInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.dispatchInput(bounds, input_state);
+        }
+
         pub fn render(self: *Self, bounds: PixelBBox, window_bounds: PixelBBox) void {
             for (self.items.items) |item| {
                 const child_bounds = PixelBBox{
@@ -266,6 +300,11 @@ pub fn Layout(comptime ActionType: type) type {
             }
         }
 
+        fn widgetRender(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.render(bounds, window_bounds);
+        }
+
         pub fn contentHeight(self: Self) u31 {
             return self.cursor.y;
         }
@@ -275,6 +314,11 @@ pub fn Layout(comptime ActionType: type) type {
                 .width = self.max_width,
                 .height = self.contentHeight(),
             };
+        }
+
+        fn widgetGetSize(ctx: ?*anyopaque) PixelSize {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.contentSize();
         }
     };
 }

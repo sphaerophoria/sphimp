@@ -179,6 +179,8 @@ const UiAction = union(enum) {
     increment_counter,
     decrement_counter,
     change_highlight_color: Color,
+    popup_overlay,
+    close_overlay,
 
     fn makeChangeHighlightColor(color: Color) UiAction {
         return .{ .change_highlight_color = color };
@@ -285,6 +287,16 @@ const AppLayoutGenerator = struct {
             try layout.pushWidget(alloc, button);
         }
 
+        {
+            const button = try Button(UiAction).init(
+                alloc,
+                "popup overlay",
+                self.shared_button_state,
+                .popup_overlay,
+            );
+            try layout.pushWidget(alloc, button);
+        }
+
         for (0..app.adjustable_float.len) |i| {
             const label = try gui.label.makeLabel(
                 UiAction,
@@ -361,6 +373,16 @@ const AppLayoutGenerator = struct {
         return ScrollView(UiAction).init(layout, self.scroll_style, self.squircle_renderer);
     }
 };
+
+fn getInputAction(layout: *ScrollView(UiAction), overlay: *gui.positional_renderer.PositionalRenderer(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
+    if (overlay.dispatchInput(input_state)) |input_res| {
+        if (input_res.consumed) {
+            return input_res.action;
+        }
+    }
+
+    return layout.dispatchInput(input_state, layout_bounds);
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -478,6 +500,36 @@ pub fn main() !void {
     }, &app);
     defer layout.deinit(alloc);
 
+    var overlay = gui.positional_renderer.PositionalRenderer(UiAction){};
+    defer overlay.deinit(alloc);
+
+    var overlay_content = Layout(UiAction){ .item_pad = widget_text_padding };
+    defer overlay_content.deinit(alloc, .full);
+
+    {
+        const overlay_label = try gui.label.makeLabel(
+            UiAction, alloc, "hello overlay", std.math.maxInt(u31), &shared_label_state,
+        );
+        errdefer overlay_label.deinit(alloc);
+
+        try overlay_content.pushWidget(alloc, overlay_label);
+    }
+    {
+        const close_button = try gui.button.makeButton(
+            UiAction, alloc, "close", &shared_button_state, .close_overlay,
+        );
+        errdefer close_button.deinit(alloc);
+
+        try overlay_content.pushWidget(alloc, close_button);
+    }
+
+    const overlay_size: PixelSize = overlay_content.contentSize();
+    const overlay_background = try gui.rect.Rect(UiAction).init(alloc, overlay_size,
+        .{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+        &squircle_renderer);
+
+    const overlay_content_widget = try overlay_content.toWidget(alloc);
+
     while (!glfw.closed()) {
         const width, const height = glfw.getWindowSize();
 
@@ -504,7 +556,7 @@ pub fn main() !void {
             input_state.pushInput(action);
         }
 
-        const action_opt = layout.dispatchInput(input_state, window_bounds);
+        const action_opt = getInputAction(&layout, &overlay, input_state, window_bounds);
         if (action_opt) |action| {
             switch (action) {
                 .change_button_state => |idx| {
@@ -537,10 +589,31 @@ pub fn main() !void {
 
                     app.hightlight_color = color;
                 },
+                .popup_overlay => {
+                    const rect_bbox = PixelBBox {
+                        .left = 0,
+                        .top = 0,
+                        .right = overlay_size.width + 10,
+                        .bottom = overlay_size.height + 10,
+                    };
+                    const content_bbox = PixelBBox {
+                        .left = 5,
+                        .top = 5,
+                        .right = overlay_size.width + 10,
+                        .bottom = overlay_size.height + 10,
+                    };
+                    try overlay.pushWidget(alloc, overlay_background, rect_bbox);
+                    try overlay.pushWidget(alloc, overlay_content_widget, content_bbox);
+                },
+                .close_overlay => {
+                    overlay.reset();
+                },
             }
         }
 
         layout.render(window_bounds, window_bounds);
+
+        overlay.render(window_bounds);
 
         glfw.swapBuffers();
     }

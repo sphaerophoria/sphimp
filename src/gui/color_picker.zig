@@ -119,6 +119,9 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             const red_label = try widget_gen.makeLabel("red");
             errdefer red_label.deinit(alloc);
 
+            var rgb_layout = Layout(ColorPickerAction){ .item_pad = shared.style.item_pad };
+            errdefer rgb_layout.deinit(alloc, .no_widgets);
+
             const red_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(RedGenerator, color_retriever), &ColorPickerAction.makeChangeRed);
             errdefer red_drag.deinit(alloc);
 
@@ -141,12 +144,14 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             );
             errdefer color_preview.deinit(alloc);
 
-            try color_picker.layout.pushWidget(alloc, red_label);
-            try color_picker.layout.pushWidget(alloc, red_drag);
-            try color_picker.layout.pushWidget(alloc, green_label);
-            try color_picker.layout.pushWidget(alloc, green_drag);
-            try color_picker.layout.pushWidget(alloc, blue_label);
-            try color_picker.layout.pushWidget(alloc, blue_drag);
+            try rgb_layout.pushWidget(alloc, red_label);
+            try rgb_layout.pushWidget(alloc, red_drag);
+            try rgb_layout.pushWidget(alloc, green_label);
+            try rgb_layout.pushWidget(alloc, green_drag);
+            try rgb_layout.pushWidget(alloc, blue_label);
+            try rgb_layout.pushWidget(alloc, blue_drag);
+
+            try color_picker.layout.pushWidget(alloc, try rgb_layout.toWidget(alloc));
             try color_picker.layout.pushWidget(alloc, hexagon.toWidget(ColorPickerAction));
             try color_picker.layout.pushWidget(alloc, color_preview);
 
