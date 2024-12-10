@@ -24,7 +24,7 @@ pub const ColorStyle = struct {
 
 pub const SharedColorPickerState = struct {
     style: ColorStyle,
-    renderer: PlaneRenderProgram,
+    hexagon_renderer: PlaneRenderProgram,
     vertex_buffer: PlaneRenderProgram.Buffer,
     lightness_renderer: PlaneRenderProgram,
     label_state: *const gui.label.SharedLabelState,
@@ -36,15 +36,15 @@ pub const SharedColorPickerState = struct {
         label_state: *const gui.label.SharedLabelState,
         squircle_renderer: *const SquircleRenderer,
     ) !SharedColorPickerState {
-        const renderer = try PlaneRenderProgram.init(
+        const hexagon_renderer = try PlaneRenderProgram.init(
             alloc,
             sphrender.plane_vertex_shader,
-            color_picker_frag,
+            hexagon_color_frag,
             ColorUniformIndex,
         );
-        errdefer renderer.deinit(alloc);
+        errdefer hexagon_renderer.deinit(alloc);
 
-        const buffer = renderer.makeDefaultBuffer();
+        const buffer = hexagon_renderer.makeDefaultBuffer();
 
         const lightness_renderer = try PlaneRenderProgram.init(
             alloc,
@@ -55,7 +55,7 @@ pub const SharedColorPickerState = struct {
 
         return .{
             .style = style,
-            .renderer = renderer,
+            .hexagon_renderer = hexagon_renderer,
             .vertex_buffer = buffer,
             .lightness_renderer = lightness_renderer,
             .label_state = label_state,
@@ -64,7 +64,7 @@ pub const SharedColorPickerState = struct {
     }
 
     pub fn deinit(self: *SharedColorPickerState, alloc: Allocator) void {
-        self.renderer.deinit(alloc);
+        self.hexagon_renderer.deinit(alloc);
         self.vertex_buffer.deinit();
         self.lightness_renderer.deinit(alloc);
     }
@@ -245,15 +245,6 @@ pub fn makeColorPicker(
         shared,
     );
 }
-
-const ColorUniformIndex = enum {
-    lightness,
-    selected_color,
-
-    pub fn asIndex(self: ColorUniformIndex) usize {
-        return @intFromEnum(self);
-    }
-};
 
 const ColorPickerAction = union(enum) {
     change_lightness: f32,
@@ -560,7 +551,7 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
             const triangle_bounds = split_bounds[2];
 
             const transform = util.widgetToClipTransform(hexagon_bounds, window_bounds);
-            self.shared.renderer.render(self.shared.vertex_buffer, &.{}, &.{
+            self.shared.hexagon_renderer.render(self.shared.vertex_buffer, &.{}, &.{
                 .{
                     .idx = ColorUniformIndex.lightness.asIndex(),
                     .val = .{ .float = lightness },
@@ -753,6 +744,15 @@ const ColorAxis = struct {
     }
 };
 
+const ColorUniformIndex = enum {
+    lightness,
+    selected_color,
+
+    pub fn asIndex(self: ColorUniformIndex) usize {
+        return @intFromEnum(self);
+    }
+};
+
 // Why not just use HSV? I don't like the idea of it. Geometrically it doesn't
 // make sense to me. We have RGB pixels in our monitor. These are 3 independent
 // axis which cap out at a value of 1. How can we possibly display the range of
@@ -767,7 +767,7 @@ const ColorAxis = struct {
 // the cube that we can see.
 //
 // This is probably worse than HSV, but conceptually I like it more :)
-pub const color_picker_frag = std.fmt.comptimePrint(
+pub const hexagon_color_frag = std.fmt.comptimePrint(
     \\#version 330
     \\in vec2 uv;
     \\out vec4 fragment;
