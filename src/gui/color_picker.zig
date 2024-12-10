@@ -26,6 +26,7 @@ pub const SharedColorPickerState = struct {
     style: ColorStyle,
     renderer: PlaneRenderProgram,
     vertex_buffer: PlaneRenderProgram.Buffer,
+    lightness_renderer: PlaneRenderProgram,
     label_state: *const gui.label.SharedLabelState,
     squircle_renderer: *const SquircleRenderer,
 
@@ -45,10 +46,18 @@ pub const SharedColorPickerState = struct {
 
         const buffer = renderer.makeDefaultBuffer();
 
+        const lightness_renderer = try PlaneRenderProgram.init(
+            alloc,
+            sphrender.plane_vertex_shader,
+            lightness_slider_frag,
+            LightnessUniformIndex,
+        );
+
         return .{
             .style = style,
             .renderer = renderer,
             .vertex_buffer = buffer,
+            .lightness_renderer = lightness_renderer,
             .label_state = label_state,
             .squircle_renderer = squircle_renderer,
         };
@@ -57,6 +66,7 @@ pub const SharedColorPickerState = struct {
     pub fn deinit(self: *SharedColorPickerState, alloc: Allocator) void {
         self.renderer.deinit(alloc);
         self.vertex_buffer.deinit();
+        self.lightness_renderer.deinit(alloc);
     }
 };
 
@@ -106,12 +116,6 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             const hexagon = try ColorHexagon(ColorRetriever).init(alloc, color_retriever, shared);
             errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), alloc);
 
-            const lightness_label = try widget_gen.makeLabel("lightness");
-            errdefer lightness_label.deinit(alloc);
-
-            const lightness_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(LightnessGenerator, color_retriever), &ColorPickerAction.makeLightness);
-            errdefer lightness_drag.deinit(alloc);
-
             const red_label = try widget_gen.makeLabel("red");
             errdefer red_label.deinit(alloc);
 
@@ -137,8 +141,6 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             );
             errdefer color_preview.deinit(alloc);
 
-            try color_picker.layout.pushWidget(alloc, lightness_label);
-            try color_picker.layout.pushWidget(alloc, lightness_drag);
             try color_picker.layout.pushWidget(alloc, red_label);
             try color_picker.layout.pushWidget(alloc, red_drag);
             try color_picker.layout.pushWidget(alloc, green_label);
@@ -246,6 +248,7 @@ pub fn makeColorPicker(
 
 const ColorUniformIndex = enum {
     lightness,
+    selected_color,
 
     pub fn asIndex(self: ColorUniformIndex) usize {
         return @intFromEnum(self);
@@ -456,6 +459,7 @@ fn getColor(color_retriever: anytype) Color {
     @compileError("Cannot get color from type " ++ T);
 }
 
+const hexagon_width_ratio: [2]i32 = .{ 17, 20 };
 fn ColorHexagon(comptime ColorRetriever: type) type {
     return struct {
         const Self = @This();
@@ -498,7 +502,7 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return .{
                 .width = self.shared.style.width,
-                .height = self.shared.style.width,
+                .height = @intCast(@divTrunc(self.shared.style.width * hexagon_width_ratio[0], hexagon_width_ratio[1])),
             };
         }
 
@@ -509,10 +513,26 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
 
         fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ColorPickerAction {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            if (bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                const prev_color = getColor(&self.color_retriever);
-                const color = pixelToRgb(calcLightness(prev_color), input_state.mouse_pos, bounds);
-                return .{ .change_color = color };
+
+            const prev_color = getColor(&self.color_retriever);
+            const lightness = calcLightness(prev_color);
+
+            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, lightness);
+            const hexagon_bounds = split_bounds[0];
+
+            if (hexagon_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const new_color = pixelToRgb(lightness, input_state.mouse_pos, hexagon_bounds);
+                return .{ .change_color = new_color };
+            }
+
+            const lightness_bounds = split_bounds[1].merge(split_bounds[2]);
+
+            if (lightness_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const lightness_bounds_height_f: f32 = @floatFromInt(lightness_bounds.calcHeight());
+                const lightness_bounds_bottom_f: f32 = @floatFromInt(lightness_bounds.bottom);
+                const mouse_bottom_offs = lightness_bounds_bottom_f - input_state.mouse_pos.y;
+                const new_lightness = mouse_bottom_offs / lightness_bounds_height_f;
+                return .{ .change_lightness = new_lightness };
             }
 
             return null;
@@ -520,17 +540,107 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const lightness = calcLightness(getColor(&self.color_retriever));
+            const color = getColor(&self.color_retriever);
+            const lightness = calcLightness(color);
 
-            const transform = util.widgetToClipTransform(bounds, window_bounds);
-            self.shared.renderer.render(self.shared.vertex_buffer, &.{}, &.{.{
-                .idx = ColorUniformIndex.lightness.asIndex(),
-                .val = .{ .float = lightness },
-            }}, transform);
+            const eps = 1e-7;
+            const max_brightness_color = if (lightness < eps)
+                Color{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 }
+            else blk: {
+                var max_color = color;
+                max_color.r /= lightness;
+                max_color.g /= lightness;
+                max_color.b /= lightness;
+                break :blk max_color;
+            };
+
+            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, lightness);
+            const hexagon_bounds = split_bounds[0];
+            const lightness_bounds = split_bounds[1];
+            const triangle_bounds = split_bounds[2];
+
+            const transform = util.widgetToClipTransform(hexagon_bounds, window_bounds);
+            self.shared.renderer.render(self.shared.vertex_buffer, &.{}, &.{
+                .{
+                    .idx = ColorUniformIndex.lightness.asIndex(),
+                    .val = .{ .float = lightness },
+                },
+                .{
+                    .idx = ColorUniformIndex.selected_color.asIndex(),
+                    .val = .{ .float3 = .{ color.r, color.g, color.b } },
+                },
+            }, transform);
+
+            const lightness_transform = util.widgetToClipTransform(lightness_bounds, window_bounds);
+            self.shared.lightness_renderer.render(
+                self.shared.vertex_buffer,
+                &.{},
+                &.{
+                    .{
+                        .idx = @intFromEnum(LightnessUniformIndex.color),
+                        .val = .{ .float3 = .{ max_brightness_color.r, max_brightness_color.g, max_brightness_color.b } },
+                    },
+                    .{
+                        .idx = @intFromEnum(LightnessUniformIndex.total_size),
+                        .val = .{
+                            .float2 = .{
+                                @floatFromInt(lightness_bounds.calcWidth()),
+                                @floatFromInt(lightness_bounds.calcHeight()),
+                            },
+                        },
+                    },
+                    .{
+                        .idx = @intFromEnum(LightnessUniformIndex.corner_radius),
+                        .val = .{ .float = self.shared.style.corner_radius },
+                    },
+                },
+                lightness_transform,
+            );
+
+            const triangle_transform = util.widgetToClipTransform(triangle_bounds, window_bounds);
+
+            self.shared.squircle_renderer.render(
+                .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+                @floatFromInt(triangle_bounds.calcWidth() / 2),
+                triangle_bounds,
+                triangle_transform,
+            );
         }
     };
 }
 
+fn splitHexagonBounds(bounds: PixelBBox, padding: i32, lightness: f32) [3]PixelBBox {
+    const width = bounds.calcWidth();
+    var hexagon_bounds = bounds;
+    hexagon_bounds.right = bounds.left + @divTrunc(width * hexagon_width_ratio[0], hexagon_width_ratio[1]);
+
+    const triangle_width = @divTrunc(width, 20);
+
+    var lightness_bounds = bounds;
+    lightness_bounds.left = hexagon_bounds.right + padding;
+    lightness_bounds.right = bounds.right - padding - triangle_width;
+    lightness_bounds.top += @divTrunc(triangle_width, 2);
+    lightness_bounds.bottom -= @divTrunc(triangle_width, 2);
+
+    var triangle_bounds = bounds;
+    triangle_bounds.left = bounds.right - triangle_width;
+
+    const total_lightness_range_px: f32 = @floatFromInt(bounds.calcHeight() - triangle_width);
+    const triangle_bottom_offs: i32 = @intFromFloat(total_lightness_range_px * lightness);
+
+    triangle_bounds.bottom = std.math.clamp(
+        bounds.bottom - triangle_bottom_offs,
+        bounds.top + triangle_width,
+        bounds.bottom,
+    );
+    triangle_bounds.top = triangle_bounds.bottom - triangle_width;
+
+    return .{
+        hexagon_bounds,
+        lightness_bounds,
+        triangle_bounds,
+    };
+}
 const hsv_rgb_axis = ColorAxis.calcHsvFacing();
 
 // Mirror of glsl code
@@ -662,6 +772,7 @@ pub const color_picker_frag = std.fmt.comptimePrint(
     \\in vec2 uv;
     \\out vec4 fragment;
     \\uniform float lightness;
+    \\uniform vec3 selected_color;
     \\
     \\vec3 blue_axis = vec3({d}, {d}, {d});
     \\vec3 red_axis = vec3({d}, {d}, {d});
@@ -722,6 +833,22 @@ pub const color_picker_frag = std.fmt.comptimePrint(
     \\    }} else {{
     \\        fragment = vec4(r * lightness, g * lightness, b * lightness, 1.0);
     \\    }}
+    \\
+    \\    vec3 scaled_selected_color = selected_color / lightness;
+    \\
+    \\    // RGB -> UV coordinate
+    \\    float white_inner_radius = 0.07;
+    \\    float white_outer_radius = 0.085;
+    \\    float outer_radius = 0.10;
+    \\    vec2 selected_screen_coord = (red_axis * scaled_selected_color.r + green_axis * scaled_selected_color.g + blue_axis * scaled_selected_color.b).xy;
+    \\    float selected_color_offs = length(center_offs - selected_screen_coord);
+    \\    if (selected_color_offs > white_inner_radius && selected_color_offs < white_outer_radius) {{
+    \\        fragment = vec4(1.0, 1.0, 1.0, 1.0);
+    \\    }} else if (selected_color_offs >= white_outer_radius && selected_color_offs < outer_radius) {{
+    \\        fragment = vec4(0.0, 0.0, 0.0, 1.0);
+    \\    }}
+    \\
+    \\
     \\}}
 , .{
     hsv_rgb_axis.b[0],
@@ -734,3 +861,35 @@ pub const color_picker_frag = std.fmt.comptimePrint(
     hsv_rgb_axis.g[1],
     hsv_rgb_axis.g[2],
 });
+
+const LightnessUniformIndex = enum {
+    color,
+    total_size,
+    corner_radius,
+};
+const lightness_slider_frag =
+    \\#version 330
+    \\in vec2 uv;
+    \\out vec4 fragment;
+    \\uniform vec3 color;
+    \\uniform vec2 total_size;
+    \\uniform float corner_radius;
+    \\
+    \\bool inCorner(vec2 corner_coord) {
+    \\    bool x_out = corner_coord.x >= total_size.x - corner_radius;
+    \\    bool y_out = corner_coord.y >= total_size.y - corner_radius;
+    \\    return x_out && y_out;
+    \\}
+    \\
+    \\void main()
+    \\{
+    \\    vec2 pixel_coord = uv * total_size;
+    \\    vec2 corner_coord = (abs(uv - 0.5) + 0.5) * total_size;
+    \\    if (inCorner(corner_coord)) {
+    \\        vec2 rel_0 = corner_coord - total_size + corner_radius;
+    \\        if (rel_0.x * rel_0.x + rel_0.y * rel_0.y > corner_radius * corner_radius) discard;
+    \\    }
+    \\
+    \\    fragment = vec4(color * uv.y, 1.0);
+    \\}
+;

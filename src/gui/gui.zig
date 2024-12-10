@@ -99,6 +99,15 @@ pub const PixelBBox = struct {
         const pos = mouse_pos orelse return false;
         return self.containsMousePos(pos);
     }
+
+    pub fn merge(a: PixelBBox, b: PixelBBox) PixelBBox {
+        return .{
+            .left = @min(a.left, b.left),
+            .right = @max(a.right, b.right),
+            .top = @min(a.top, b.top),
+            .bottom = @max(a.bottom, b.bottom),
+        };
+    }
 };
 
 pub fn Widget(comptime ActionType: type) type {
