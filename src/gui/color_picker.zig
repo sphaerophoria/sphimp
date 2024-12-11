@@ -118,6 +118,13 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
 
         fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            switch (self.state) {
+                .open => |s| {
+                    s.overlay_widget.deinit(alloc);
+                    s.rect_widget.deinit(alloc);
+                },
+                else => {},
+            }
             alloc.destroy(self);
         }
 
@@ -130,14 +137,13 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
         }
 
         fn generateOverlayWidget(self: Self) !Widget(ActionType) {
-            var layout = Layout(ActionType) { .item_pad = self.shared.style.item_pad };
+            var layout = Layout(ActionType){ .item_pad = self.shared.style.item_pad };
             errdefer layout.deinit(self.alloc, .full);
 
             {
                 const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
                 errdefer title.deinit(self.alloc);
                 try layout.pushWidget(self.alloc, title);
-
             }
 
             {
@@ -162,7 +168,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
             }
 
             {
-                const red_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(RedRetreiver, self.color_retriever), RedGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
+                const red_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(RedRetriever, self.color_retriever), RedGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
                     .color_retriever = self.color_retriever,
                     .color_generator = self.color_generator,
                 });
@@ -170,19 +176,35 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
                 try layout.pushWidget(self.alloc, red_drag);
             }
 
+            {
+                const green_label = try widget_gen.makeLabel(ActionType, "green");
+                errdefer green_label.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, green_label);
+            }
 
-            //const green_label = try widget_gen.makeLabel("green");
-            //errdefer green_label.deinit(self.alloc);
+            {
+                const green_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(GreenRetriever, self.color_retriever), GreenGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
+                    .color_retriever = self.color_retriever,
+                    .color_generator = self.color_generator,
+                });
+                errdefer green_drag.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, green_drag);
+            }
 
-            //const green_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(GreenGenerator, self.color_retriever), &ColorPickerAction.makeChangeGreen);
-            //errdefer green_drag.deinit(self.alloc);
+            {
+                const blue_label = try widget_gen.makeLabel(ActionType, "blue");
+                errdefer blue_label.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, blue_label);
+            }
 
-            //const blue_label = try widget_gen.makeLabel("blue");
-            //errdefer blue_label.deinit(self.alloc);
-
-            //const blue_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(BlueGenerator, self.color_retriever), &ColorPickerAction.makeChangeBlue);
-            //errdefer blue_drag.deinit(self.alloc);
-
+            {
+                const blue_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(BlueRetriever, self.color_retriever), BlueGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
+                    .color_retriever = self.color_retriever,
+                    .color_generator = self.color_generator,
+                });
+                errdefer blue_drag.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, blue_drag);
+            }
 
             return try layout.toWidget(self.alloc);
         }
@@ -201,7 +223,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
                 left += self.shared.style.item_pad;
 
                 const hexagon_size = hexagon_widget.getSize();
-                var overlay_bounds = PixelBBox {
+                var overlay_bounds = PixelBBox{
                     .top = bottom - hexagon_size.height,
                     .bottom = bottom,
                     .right = left + hexagon_size.width,
@@ -214,7 +236,8 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
                     overlay_bounds.top = 0;
                 }
 
-                const rect = gui.rect.Rect(ActionType).init(self.alloc,
+                const rect = gui.rect.Rect(ActionType).init(
+                    self.alloc,
                     .{
                         .width = overlay_bounds.calcWidth() + self.shared.style.item_pad * 2,
                         .height = overlay_bounds.calcHeight() + self.shared.style.item_pad * 2,
@@ -222,7 +245,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
                     self.shared.style.popup_background,
                     self.shared.squircle_renderer,
                 ) catch return null; //FIXME: errdefers and stuff
-                const rect_bounds = PixelBBox {
+                const rect_bounds = PixelBBox{
                     .top = overlay_bounds.top - self.shared.style.item_pad,
                     .bottom = overlay_bounds.bottom + self.shared.style.item_pad,
                     .left = overlay_bounds.left - self.shared.style.item_pad,
@@ -231,7 +254,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
 
                 self.overlay.pushWidget(self.alloc, rect, rect_bounds) catch return null; //FIXME: errdefers and stuff
                 self.overlay.pushWidget(self.alloc, hexagon_widget, overlay_bounds) catch return null; //FIXME: errdefers and stuff
-                                                                                                       //
+                //
                 self.state = .{
                     .open = .{
                         .mouse_released = input_state.mouse_released,
@@ -276,195 +299,9 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
     };
 }
 
-pub fn makeColorPreview2(comptime ActionType: type,alloc: Allocator, color_retriever: anytype, color_generator: anytype, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
+pub fn makeColorPreview2(comptime ActionType: type, alloc: Allocator, color_retriever: anytype, color_generator: anytype, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
     return ColorPreview2(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(alloc, color_retriever, color_generator, shared, overlay);
 }
-
-pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
-    return struct {
-        const Self = @This();
-
-        layout: Layout(ColorPickerAction),
-        color_retriever: ColorRetriever,
-        color_generator: ColorGenerator,
-        overlay: *PositionalRenderer(ActionType),
-        shared: *const SharedColorPickerState,
-
-        const widget_vtable = Widget(ActionType).VTable{
-            .deinit = Self.deinit,
-            .render = Self.render,
-            .getSize = Self.getSize,
-            .setInputState = Self.setInputState,
-            .update = Self.update,
-        };
-
-        pub fn init(
-            alloc: Allocator,
-            color_retriever: ColorRetriever,
-            color_generator: ColorGenerator,
-            shared: *const SharedColorPickerState,
-            overlay: *PositionalRenderer(ActionType),
-        ) !Widget(ActionType) {
-            const color_picker = try alloc.create(Self);
-            errdefer alloc.destroy(color_picker);
-
-            color_picker.* = .{
-                .color_retriever = color_retriever,
-                .color_generator = color_generator,
-                .layout = .{
-                    .item_pad = shared.style.item_pad,
-                },
-                .shared = shared,
-                .overlay = overlay,
-            };
-
-            errdefer color_picker.layout.deinit(alloc, .no_widgets);
-            const widget_gen = WidgetGenerator{
-                .alloc = alloc,
-                .label_state = shared.label_state,
-                .squircle_renderer = shared.squircle_renderer,
-                .shared = shared,
-            };
-
-            const hexagon = try ColorHexagon(ColorPickerAction, ColorRetriever, *const fn (gui.Color) ColorPickerAction).init(alloc, color_retriever, &ColorPickerAction.makeChangeColor, shared);
-            errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), alloc);
-
-            const red_label = try widget_gen.makeLabel("red");
-            errdefer red_label.deinit(alloc);
-
-            var rgb_layout = Layout(ColorPickerAction){ .item_pad = shared.style.item_pad };
-            errdefer rgb_layout.deinit(alloc, .no_widgets);
-
-            const red_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(RedRetreiver, color_retriever), &ColorPickerAction.makeChangeRed);
-            errdefer red_drag.deinit(alloc);
-
-            const green_label = try widget_gen.makeLabel("green");
-            errdefer green_label.deinit(alloc);
-
-            const green_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(GreenGenerator, color_retriever), &ColorPickerAction.makeChangeGreen);
-            errdefer green_drag.deinit(alloc);
-
-            const blue_label = try widget_gen.makeLabel("blue");
-            errdefer blue_label.deinit(alloc);
-
-            const blue_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(BlueGenerator, color_retriever), &ColorPickerAction.makeChangeBlue);
-            errdefer blue_drag.deinit(alloc);
-
-            const color_preview = try ColorPreview(ColorRetriever).init(
-                alloc,
-                color_retriever,
-                shared,
-            );
-            errdefer color_preview.deinit(alloc);
-
-            try rgb_layout.pushWidget(alloc, red_label);
-            try rgb_layout.pushWidget(alloc, red_drag);
-            try rgb_layout.pushWidget(alloc, green_label);
-            try rgb_layout.pushWidget(alloc, green_drag);
-            try rgb_layout.pushWidget(alloc, blue_label);
-            try rgb_layout.pushWidget(alloc, blue_drag);
-
-            try color_picker.layout.pushWidget(alloc, try rgb_layout.toWidget(alloc));
-            try color_picker.layout.pushWidget(alloc, hexagon.toWidget());
-            try color_picker.layout.pushWidget(alloc, color_preview);
-
-            return .{
-                .vtable = &widget_vtable,
-                .ctx = color_picker,
-            };
-        }
-
-        fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            self.layout.deinit(alloc, .full);
-            alloc.destroy(self);
-        }
-
-        fn getSize(ctx: ?*anyopaque) PixelSize {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            return self.layout.contentSize();
-        }
-
-        fn update(ctx: ?*anyopaque, bounds: PixelSize) !void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            try self.layout.update(bounds);
-        }
-
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.layout.dispatchInput(bounds, input_state)) |val| {
-                switch (val) {
-                    .change_color => |color| {
-                        return generateAction(ActionType, &self.color_generator, color);
-                    },
-                    .change_red => |red| {
-                        var color = getColor(&self.color_retriever);
-                        color.r = red;
-                        return generateAction(ActionType, &self.color_generator, color);
-                    },
-                    .change_green => |green| {
-                        var color = getColor(&self.color_retriever);
-                        color.g = green;
-                        return generateAction(ActionType, &self.color_generator, color);
-                    },
-                    .change_blue => |blue| {
-                        var color = getColor(&self.color_retriever);
-                        color.b = blue;
-                        return generateAction(ActionType, &self.color_generator, color);
-                    },
-                }
-            }
-
-            return null;
-        }
-
-        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-
-            self.layout.render(bounds, window_bounds);
-        }
-    };
-}
-
-pub fn makeColorPicker(
-    comptime ActionType: type,
-    alloc: Allocator,
-    color_retriever: anytype,
-    color_generator: anytype,
-    shared: *const SharedColorPickerState,
-    overlay: *PositionalRenderer(ActionType),
-) !Widget(ActionType) {
-    return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(
-        alloc,
-        color_retriever,
-        color_generator,
-        shared,
-        overlay,
-    );
-}
-
-const ColorPickerAction = union(enum) {
-    change_color: Color,
-    change_red: f32,
-    change_green: f32,
-    change_blue: f32,
-
-    pub fn makeChangeColor(val: Color) ColorPickerAction {
-        return .{ .change_color = val };
-    }
-
-    pub fn makeChangeRed(val: f32) ColorPickerAction {
-        return .{ .change_red = val };
-    }
-
-    pub fn makeChangeGreen(val: f32) ColorPickerAction {
-        return .{ .change_green = val };
-    }
-
-    pub fn makeChangeBlue(val: f32) ColorPickerAction {
-        return .{ .change_blue = val };
-    }
-};
 
 fn LightnessGenerator(comptime ColorRetriever: type) type {
     return struct {
@@ -479,7 +316,7 @@ fn LightnessGenerator(comptime ColorRetriever: type) type {
     };
 }
 
-fn RedRetreiver(comptime ColorRetriever: type) type {
+fn RedRetriever(comptime ColorRetriever: type) type {
     return struct {
         color_retriever: ColorRetriever,
 
@@ -507,7 +344,7 @@ fn RedGenerator(comptime ActionType: type, comptime ColorRetriever: type, compti
     };
 }
 
-fn BlueGenerator(comptime ColorRetriever: type) type {
+fn BlueRetriever(comptime ColorRetriever: type) type {
     return struct {
         color_retriever: ColorRetriever,
 
@@ -520,7 +357,22 @@ fn BlueGenerator(comptime ColorRetriever: type) type {
     };
 }
 
-fn GreenGenerator(comptime ColorRetriever: type) type {
+fn BlueGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
+
+        const Self = @This();
+
+        pub fn generate(self: Self, val: f32) ActionType {
+            var color = getColor(&self.color_retriever);
+            color.b = val;
+            return generateAction(ActionType, &self.color_generator, color);
+        }
+    };
+}
+
+fn GreenRetriever(comptime ColorRetriever: type) type {
     return struct {
         color_retriever: ColorRetriever,
 
@@ -529,6 +381,21 @@ fn GreenGenerator(comptime ColorRetriever: type) type {
         pub fn getVal(self: Self) f32 {
             const color = getColor(&self.color_retriever);
             return color.g;
+        }
+    };
+}
+
+fn GreenGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
+
+        const Self = @This();
+
+        pub fn generate(self: Self, val: f32) ActionType {
+            var color = getColor(&self.color_retriever);
+            color.g = val;
+            return generateAction(ActionType, &self.color_generator, color);
         }
     };
 }
@@ -545,7 +412,7 @@ const WidgetGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
     shared: *const SharedColorPickerState,
 
-    fn makeLabel( self: WidgetGenerator, comptime ActionType: type,name: []const u8) !Widget(ActionType) {
+    fn makeLabel(self: WidgetGenerator, comptime ActionType: type, name: []const u8) !Widget(ActionType) {
         return gui.label.makeLabel(
             ActionType,
             self.alloc,
@@ -567,61 +434,6 @@ const WidgetGenerator = struct {
         );
     }
 };
-
-pub fn ColorPreview(comptime ColorRetriever: type) type {
-    return struct {
-        const Self = @This();
-        color_retriever: ColorRetriever,
-        shared: *const SharedColorPickerState,
-
-        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, shared: *const SharedColorPickerState) !Widget(ColorPickerAction) {
-            const preview = try alloc.create(Self);
-            errdefer alloc.destroy(preview);
-
-            preview.* = .{
-                .color_retriever = color_retriever,
-                .shared = shared,
-            };
-
-            const widget_vtable = Widget(ColorPickerAction).VTable{
-                .deinit = Self.deinit,
-                .render = Self.render,
-                .getSize = Self.getSize,
-            };
-
-            return .{
-                .vtable = &widget_vtable,
-                .ctx = preview,
-            };
-        }
-
-        fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            alloc.destroy(self);
-        }
-
-        fn getSize(ctx: ?*anyopaque) PixelSize {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            return .{
-                .width = self.shared.style.width,
-                .height = self.shared.style.color_preview_height,
-            };
-        }
-
-        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-
-            const transform = util.widgetToClipTransform(bounds, window_bounds);
-            const color = getColor(&self.color_retriever);
-            self.shared.squircle_renderer.render(
-                color,
-                self.shared.style.corner_radius,
-                bounds,
-                transform,
-            );
-        }
-    };
-}
 
 fn generateAction(comptime ActionType: type, color_generator: anytype, color: Color) ActionType {
     const Ptr = @TypeOf(color_generator);

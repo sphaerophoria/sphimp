@@ -299,6 +299,18 @@ const AppLayoutGenerator = struct {
         }
 
         {
+            const color_label = try gui.label.makeLabel(
+                UiAction,
+                alloc,
+                "Highlight color",
+                std.math.maxInt(u31),
+                self.shared_label_state,
+            );
+            errdefer color_label.deinit(alloc);
+            try layout.pushWidget(alloc, color_label);
+        }
+
+        {
             const color_popup = try gui.color_picker.makeColorPreview2(
                 UiAction,
                 alloc,
@@ -524,7 +536,11 @@ pub fn main() !void {
 
     {
         const overlay_label = try gui.label.makeLabel(
-            UiAction, alloc, "hello overlay", std.math.maxInt(u31), &shared_label_state,
+            UiAction,
+            alloc,
+            "hello overlay",
+            std.math.maxInt(u31),
+            &shared_label_state,
         );
         errdefer overlay_label.deinit(alloc);
 
@@ -532,7 +548,11 @@ pub fn main() !void {
     }
     {
         const close_button = try gui.button.makeButton(
-            UiAction, alloc, "close", &shared_button_state, .close_overlay,
+            UiAction,
+            alloc,
+            "close",
+            &shared_button_state,
+            .close_overlay,
         );
         errdefer close_button.deinit(alloc);
 
@@ -540,9 +560,7 @@ pub fn main() !void {
     }
 
     const overlay_size: PixelSize = overlay_content.contentSize();
-    const overlay_background = try gui.rect.Rect(UiAction).init(alloc, overlay_size,
-        .{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 },
-        &squircle_renderer);
+    const overlay_background = try gui.rect.Rect(UiAction).init(alloc, overlay_size, .{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 }, &squircle_renderer);
 
     const overlay_content_widget = try overlay_content.toWidget(alloc);
 
@@ -606,13 +624,13 @@ pub fn main() !void {
                     app.hightlight_color = color;
                 },
                 .popup_overlay => {
-                    const rect_bbox = PixelBBox {
+                    const rect_bbox = PixelBBox{
                         .left = 0,
                         .top = 0,
                         .right = overlay_size.width + 10,
                         .bottom = overlay_size.height + 10,
                     };
-                    const content_bbox = PixelBBox {
+                    const content_bbox = PixelBBox{
                         .left = 5,
                         .top = 5,
                         .right = overlay_size.width + 10,
