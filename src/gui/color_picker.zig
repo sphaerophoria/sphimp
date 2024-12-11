@@ -86,8 +86,6 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
             open: struct {
                 mouse_released: bool = false,
                 overlay_bounds: PixelBBox,
-                overlay_widget: Widget(ActionType),
-                rect_widget: Widget(ActionType),
             },
         } = .closed,
 
@@ -118,13 +116,6 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
 
         fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            switch (self.state) {
-                .open => |s| {
-                    s.overlay_widget.deinit(alloc);
-                    s.rect_widget.deinit(alloc);
-                },
-                else => {},
-            }
             alloc.destroy(self);
         }
 
@@ -138,140 +129,127 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
 
         fn generateOverlayWidget(self: Self) !Widget(ActionType) {
             var layout = Layout(ActionType){ .item_pad = self.shared.style.item_pad };
-            errdefer layout.deinit(self.alloc, .full);
+            errdefer layout.deinit(self.alloc);
 
-            {
-                const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
-                errdefer title.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, title);
-            }
+            const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
+            try layout.pushOrDeinitWidget(self.alloc, title);
 
-            {
-                const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator).init(self.alloc, self.color_retriever, self.color_generator, self.shared);
-                const hexagon_widget = hexagon.toWidget();
-                errdefer hexagon_widget.deinit(self.alloc);
+            const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator).init(self.alloc, self.color_retriever, self.color_generator, self.shared);
+            const hexagon_widget = hexagon.toWidget();
+            try layout.pushOrDeinitWidget(self.alloc, hexagon_widget);
 
-                try layout.pushWidget(self.alloc, hexagon_widget);
-            }
-
-            const widget_gen = WidgetGenerator{
+            const widget_gen = WidgetGenerator(ActionType, ColorRetriever, ColorGenerator){
                 .alloc = self.alloc,
                 .label_state = self.shared.label_state,
                 .squircle_renderer = self.shared.squircle_renderer,
                 .shared = self.shared,
+                .retriever = self.color_retriever,
+                .generator = self.color_generator,
             };
 
-            {
-                const red_label = try widget_gen.makeLabel(ActionType, "red");
-                errdefer red_label.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, red_label);
-            }
+            const red_label = try widget_gen.makeLabel("red");
+            try layout.pushOrDeinitWidget(self.alloc, red_label);
 
-            {
-                const red_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(RedRetriever, self.color_retriever), RedGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
-                    .color_retriever = self.color_retriever,
-                    .color_generator = self.color_generator,
-                });
-                errdefer red_drag.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, red_drag);
-            }
+            const red_drag = try widget_gen.makeRGBDrag("r");
+            try layout.pushOrDeinitWidget(self.alloc, red_drag);
 
-            {
-                const green_label = try widget_gen.makeLabel(ActionType, "green");
-                errdefer green_label.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, green_label);
-            }
+            const green_label = try widget_gen.makeLabel("green");
+            try layout.pushOrDeinitWidget(self.alloc, green_label);
 
-            {
-                const green_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(GreenRetriever, self.color_retriever), GreenGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
-                    .color_retriever = self.color_retriever,
-                    .color_generator = self.color_generator,
-                });
-                errdefer green_drag.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, green_drag);
-            }
+            const green_drag = try widget_gen.makeRGBDrag("g");
+            try layout.pushOrDeinitWidget(self.alloc, green_drag);
 
-            {
-                const blue_label = try widget_gen.makeLabel(ActionType, "blue");
-                errdefer blue_label.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, blue_label);
-            }
+            const blue_label = try widget_gen.makeLabel("blue");
+            try layout.pushOrDeinitWidget(self.alloc, blue_label);
 
-            {
-                const blue_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(BlueRetriever, self.color_retriever), BlueGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
-                    .color_retriever = self.color_retriever,
-                    .color_generator = self.color_generator,
-                });
-                errdefer blue_drag.deinit(self.alloc);
-                try layout.pushWidget(self.alloc, blue_drag);
-            }
+            const blue_drag = try widget_gen.makeRGBDrag("b");
+            try layout.pushOrDeinitWidget(self.alloc, blue_drag);
 
             return try layout.toWidget(self.alloc);
+        }
+
+        const OverlayWidgets = struct {
+            content: Widget(ActionType),
+            bounds: PixelBBox,
+            background: Widget(ActionType),
+            background_bounds: PixelBBox,
+        };
+
+        fn makeOverlayWidgets(self: *Self, overlay_pos: MousePos) !OverlayWidgets {
+            const hexagon_widget = try self.generateOverlayWidget();
+            errdefer hexagon_widget.deinit(self.alloc);
+
+            var bottom: i32 = @intFromFloat(overlay_pos.y + 1);
+            bottom += self.shared.style.item_pad;
+            var left: i32 = @intFromFloat(overlay_pos.x + 1);
+            left += self.shared.style.item_pad;
+
+            const hexagon_size = hexagon_widget.getSize();
+            var overlay_bounds = PixelBBox{
+                .top = bottom - hexagon_size.height,
+                .bottom = bottom,
+                .right = left + hexagon_size.width,
+                .left = left,
+            };
+
+            // FIXME: Check other sides
+            if (overlay_bounds.top < 0) {
+                overlay_bounds.bottom -= overlay_bounds.top;
+                overlay_bounds.top = 0;
+            }
+
+            const rect = try gui.rect.Rect(ActionType).init(
+                self.alloc,
+                .{
+                    .width = overlay_bounds.calcWidth() + self.shared.style.item_pad * 2,
+                    .height = overlay_bounds.calcHeight() + self.shared.style.item_pad * 2,
+                },
+                self.shared.style.popup_background,
+                self.shared.squircle_renderer,
+            );
+            errdefer rect.deinit(self.alloc);
+
+            const rect_bounds = PixelBBox{
+                .top = overlay_bounds.top - self.shared.style.item_pad,
+                .bottom = overlay_bounds.bottom + self.shared.style.item_pad,
+                .left = overlay_bounds.left - self.shared.style.item_pad,
+                .right = overlay_bounds.right + self.shared.style.item_pad,
+            };
+
+            return .{
+                .content = hexagon_widget,
+                .bounds = overlay_bounds,
+                .background = rect,
+                .background_bounds = rect_bounds,
+            };
+        }
+
+        fn spawnOverlay(self: *Self, overlay_pos: MousePos, mouse_released: bool) !void {
+            const overlay_widgets = try self.makeOverlayWidgets(overlay_pos);
+            errdefer self.overlay.reset(self.alloc);
+
+            const ret1 = self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.background, overlay_widgets.background_bounds);
+            try self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.content, overlay_widgets.bounds);
+            try ret1;
+
+            self.state = .{
+                .open = .{
+                    .mouse_released = mouse_released,
+                    .overlay_bounds = overlay_widgets.bounds,
+                },
+            };
         }
 
         fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.state == .closed and widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                const hexagon_widget = self.generateOverlayWidget() catch return null;
-                // FIXME: Error handling
-                // errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), self.alloc);
-
-                const mouse_down_pos = input_state.mouse_down_location.?;
-                var bottom: i32 = @intFromFloat(mouse_down_pos.y + 1);
-                bottom += self.shared.style.item_pad;
-                var left: i32 = @intFromFloat(mouse_down_pos.x + 1);
-                left += self.shared.style.item_pad;
-
-                const hexagon_size = hexagon_widget.getSize();
-                var overlay_bounds = PixelBBox{
-                    .top = bottom - hexagon_size.height,
-                    .bottom = bottom,
-                    .right = left + hexagon_size.width,
-                    .left = left,
-                };
-
-                // FIXME: Check other sides
-                if (overlay_bounds.top < 0) {
-                    overlay_bounds.bottom -= overlay_bounds.top;
-                    overlay_bounds.top = 0;
-                }
-
-                const rect = gui.rect.Rect(ActionType).init(
-                    self.alloc,
-                    .{
-                        .width = overlay_bounds.calcWidth() + self.shared.style.item_pad * 2,
-                        .height = overlay_bounds.calcHeight() + self.shared.style.item_pad * 2,
-                    },
-                    self.shared.style.popup_background,
-                    self.shared.squircle_renderer,
-                ) catch return null; //FIXME: errdefers and stuff
-                const rect_bounds = PixelBBox{
-                    .top = overlay_bounds.top - self.shared.style.item_pad,
-                    .bottom = overlay_bounds.bottom + self.shared.style.item_pad,
-                    .left = overlay_bounds.left - self.shared.style.item_pad,
-                    .right = overlay_bounds.right + self.shared.style.item_pad,
-                };
-
-                self.overlay.pushWidget(self.alloc, rect, rect_bounds) catch return null; //FIXME: errdefers and stuff
-                self.overlay.pushWidget(self.alloc, hexagon_widget, overlay_bounds) catch return null; //FIXME: errdefers and stuff
-                //
-                self.state = .{
-                    .open = .{
-                        .mouse_released = input_state.mouse_released,
-                        .overlay_bounds = overlay_bounds,
-                        .overlay_widget = hexagon_widget,
-                        .rect_widget = rect,
-                    },
-                };
+                self.spawnOverlay(input_state.mouse_down_location.?, input_state.mouse_released) catch return null;
             } else if (self.state == .open) {
                 // FIXME: WTF is this whole block
-                std.debug.print("open\n", .{});
                 if (self.state.open.mouse_released) {
-                    std.debug.print("mouse released\n", .{});
                     if (input_state.mouse_down_location) |loc| {
                         if (!self.state.open.overlay_bounds.containsMousePos(loc)) {
-                            self.state.open.overlay_widget.deinit(self.alloc);
-                            self.overlay.reset();
+                            self.overlay.reset(self.alloc);
                             self.state = .closed;
                         }
                     }
@@ -303,137 +281,62 @@ pub fn makeColorPreview2(comptime ActionType: type, alloc: Allocator, color_retr
     return ColorPreview2(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(alloc, color_retriever, color_generator, shared, overlay);
 }
 
-fn LightnessGenerator(comptime ColorRetriever: type) type {
+fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
-        color_retriever: ColorRetriever,
+        alloc: Allocator,
+        label_state: *const gui.label.SharedLabelState,
+        squircle_renderer: *const SquircleRenderer,
+        shared: *const SharedColorPickerState,
+        retriever: ColorRetriever,
+        generator: ColorGenerator,
 
         const Self = @This();
 
-        pub fn getVal(self: Self) f32 {
-            const color = getColor(&self.color_retriever);
-            return calcLightness(color);
+        fn makeLabel(self: Self, name: []const u8) !Widget(ActionType) {
+            return gui.label.makeLabel(
+                ActionType,
+                self.alloc,
+                name,
+                std.math.maxInt(u31),
+                self.label_state,
+            );
+        }
+
+        fn makeRGBDrag(self: Self, comptime color_field: []const u8) !Widget(ActionType) {
+            const Retriever = struct {
+                color_retriever: ColorRetriever,
+
+                pub fn getVal(rself: @This()) f32 {
+                    const color = getColor(&rself.color_retriever);
+                    return @field(color, color_field);
+                }
+            };
+
+            const Generator = struct {
+                color_retriever: ColorRetriever,
+                color_generator: ColorGenerator,
+
+                const Self = @This();
+
+                pub fn generate(gself: @This(), val: f32) ActionType {
+                    var color = getColor(&gself.color_retriever);
+                    @field(color, color_field) = val;
+                    return generateAction(ActionType, &gself.color_generator, color);
+                }
+            };
+
+            return gui.drag_float.makeWidget(
+                ActionType,
+                self.alloc,
+                Retriever{ .color_retriever = self.retriever },
+                Generator{ .color_retriever = self.retriever, .color_generator = self.generator },
+                &self.shared.style.drag_style,
+                self.label_state,
+                self.squircle_renderer,
+            );
         }
     };
 }
-
-fn RedRetriever(comptime ColorRetriever: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-
-        const Self = @This();
-
-        pub fn getVal(self: Self) f32 {
-            const color = getColor(&self.color_retriever);
-            return color.r;
-        }
-    };
-}
-
-fn RedGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-        color_generator: ColorGenerator,
-
-        const Self = @This();
-
-        pub fn generate(self: Self, val: f32) ActionType {
-            var color = getColor(&self.color_retriever);
-            color.r = val;
-            return generateAction(ActionType, &self.color_generator, color);
-        }
-    };
-}
-
-fn BlueRetriever(comptime ColorRetriever: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-
-        const Self = @This();
-
-        pub fn getVal(self: Self) f32 {
-            const color = getColor(&self.color_retriever);
-            return color.b;
-        }
-    };
-}
-
-fn BlueGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-        color_generator: ColorGenerator,
-
-        const Self = @This();
-
-        pub fn generate(self: Self, val: f32) ActionType {
-            var color = getColor(&self.color_retriever);
-            color.b = val;
-            return generateAction(ActionType, &self.color_generator, color);
-        }
-    };
-}
-
-fn GreenRetriever(comptime ColorRetriever: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-
-        const Self = @This();
-
-        pub fn getVal(self: Self) f32 {
-            const color = getColor(&self.color_retriever);
-            return color.g;
-        }
-    };
-}
-
-fn GreenGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
-    return struct {
-        color_retriever: ColorRetriever,
-        color_generator: ColorGenerator,
-
-        const Self = @This();
-
-        pub fn generate(self: Self, val: f32) ActionType {
-            var color = getColor(&self.color_retriever);
-            color.g = val;
-            return generateAction(ActionType, &self.color_generator, color);
-        }
-    };
-}
-
-fn makeColorRetrieverDependent(comptime T: anytype, retriever: anytype) T(@TypeOf(retriever)) {
-    return .{
-        .color_retriever = retriever,
-    };
-}
-
-const WidgetGenerator = struct {
-    alloc: Allocator,
-    label_state: *const gui.label.SharedLabelState,
-    squircle_renderer: *const SquircleRenderer,
-    shared: *const SharedColorPickerState,
-
-    fn makeLabel(self: WidgetGenerator, comptime ActionType: type, name: []const u8) !Widget(ActionType) {
-        return gui.label.makeLabel(
-            ActionType,
-            self.alloc,
-            name,
-            std.math.maxInt(u31),
-            self.label_state,
-        );
-    }
-
-    fn makeFloatDrag(self: WidgetGenerator, comptime ActionType: type, val: anytype, generator: anytype) !Widget(ActionType) {
-        return gui.drag_float.makeWidget(
-            ActionType,
-            self.alloc,
-            val,
-            generator,
-            &self.shared.style.drag_style,
-            self.label_state,
-            self.squircle_renderer,
-        );
-    }
-};
 
 fn generateAction(comptime ActionType: type, color_generator: anytype, color: Color) ActionType {
     const Ptr = @TypeOf(color_generator);

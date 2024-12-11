@@ -65,7 +65,7 @@ pub fn ScrollView(comptime ActionType: type) type {
         }
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
-            self.layout.deinit(alloc, .full);
+            self.layout.deinit(alloc);
         }
 
         pub fn update(self: *Self, window_size: PixelSize) !void {
@@ -180,12 +180,7 @@ pub fn Layout(comptime ActionType: type) type {
         };
         const Self = @This();
 
-        pub const LayoutDeinitType = enum {
-            full,
-            no_widgets,
-        };
-
-        const widget_vtable = Widget(ActionType).VTable {
+        const widget_vtable = Widget(ActionType).VTable{
             .deinit = Self.widgetDeinit,
             .render = Self.widgetRender,
             .getSize = Self.widgetGetSize,
@@ -193,22 +188,20 @@ pub fn Layout(comptime ActionType: type) type {
             .setInputState = Self.widgetSetInputState,
         };
 
-        pub fn deinit(self: *Self, alloc: Allocator, deinit_type: LayoutDeinitType) void {
-            if (deinit_type == .full) {
-                for (self.items.items) |item| {
-                    item.widget.deinit(alloc);
-                }
+        pub fn deinit(self: *Self, alloc: Allocator) void {
+            for (self.items.items) |item| {
+                item.widget.deinit(alloc);
             }
             self.items.deinit(alloc);
         }
 
         fn widgetDeinit(ctx: ?*anyopaque, alloc: Allocator) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.deinit(alloc, .full);
+            self.deinit(alloc);
             alloc.destroy(self);
         }
 
-        pub fn pushWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
+        pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
             errdefer widget.deinit(alloc);
             const size = widget.getSize();
             const bounds = self.cursor.apply(size, self.item_pad);
