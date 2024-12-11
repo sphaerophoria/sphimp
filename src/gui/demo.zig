@@ -256,6 +256,7 @@ const AppLayoutGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
     scroll_style: *const gui.scrollbar.Style,
     shared_color: *const gui.color_picker.SharedColorPickerState,
+    overlay: *gui.positional_renderer.PositionalRenderer(UiAction),
     layout_item_pad: u31,
 
     fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !ScrollView(UiAction) {
@@ -295,6 +296,18 @@ const AppLayoutGenerator = struct {
                 .popup_overlay,
             );
             try layout.pushWidget(alloc, button);
+        }
+
+        {
+            const color_popup = try gui.color_picker.makeColorPreview2(
+                UiAction,
+                alloc,
+                &app.hightlight_color,
+                &UiAction.makeChangeHighlightColor,
+                self.shared_color,
+                self.overlay,
+            );
+            try layout.pushWidget(alloc, color_popup);
         }
 
         for (0..app.adjustable_float.len) |i| {
@@ -349,14 +362,15 @@ const AppLayoutGenerator = struct {
         }
 
         {
-            const color_picker = try gui.color_picker.makeColorPicker(
-                UiAction,
-                alloc,
-                &app.hightlight_color,
-                &UiAction.makeChangeHighlightColor,
-                self.shared_color,
-            );
-            try layout.pushWidget(alloc, color_picker);
+            //const color_picker = try gui.color_picker.makeColorPicker(
+            //    UiAction,
+            //    alloc,
+            //    &app.hightlight_color,
+            //    &UiAction.makeChangeHighlightColor,
+            //    self.shared_color,
+            //    self.overlay,
+            //);
+            //try layout.pushWidget(alloc, color_picker);
         }
 
         {
@@ -474,6 +488,7 @@ pub fn main() !void {
         alloc,
         gui.color_picker.ColorStyle{
             .width = widget_width,
+            .popup_background = GlobalStyle.background_color2,
             .color_preview_height = slider_height,
             .item_pad = widget_text_padding,
             .corner_radius = corner_radius,
@@ -484,6 +499,9 @@ pub fn main() !void {
     );
     defer color_picker_state.deinit(alloc);
 
+    var overlay = gui.positional_renderer.PositionalRenderer(UiAction){};
+    defer overlay.deinit(alloc);
+
     const layout_generator = AppLayoutGenerator{
         .shared_label_state = &shared_label_state,
         .drag_style = &drag_style,
@@ -492,6 +510,7 @@ pub fn main() !void {
         .squircle_renderer = &squircle_renderer,
         .layout_item_pad = @intFromFloat(unit / 2.0),
         .shared_color = &color_picker_state,
+        .overlay = &overlay,
     };
 
     var layout = try layout_generator.generateLayoutForApp(alloc, .{
@@ -499,9 +518,6 @@ pub fn main() !void {
         .height = window_height,
     }, &app);
     defer layout.deinit(alloc);
-
-    var overlay = gui.positional_renderer.PositionalRenderer(UiAction){};
-    defer overlay.deinit(alloc);
 
     var overlay_content = Layout(UiAction){ .item_pad = widget_text_padding };
     defer overlay_content.deinit(alloc, .full);

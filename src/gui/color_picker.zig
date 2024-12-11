@@ -10,12 +10,14 @@ const MousePos = gui.MousePos;
 const PixelSize = gui.PixelSize;
 const PixelBBox = gui.PixelBBox;
 const InputState = gui.InputState;
+const PositionalRenderer = gui.positional_renderer.PositionalRenderer;
 const Color = gui.Color;
 const PlaneRenderProgram = sphrender.PlaneRenderProgram;
 const SquircleRenderer = @import("SquircleRenderer.zig");
 
 pub const ColorStyle = struct {
     width: u31,
+    popup_background: Color,
     color_preview_height: u31,
     corner_radius: f32,
     item_pad: u31,
@@ -70,6 +72,214 @@ pub const SharedColorPickerState = struct {
     }
 };
 
+pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+    return struct {
+        const Self = @This();
+        alloc: Allocator,
+        color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
+        overlay: *PositionalRenderer(ActionType),
+        shared: *const SharedColorPickerState,
+
+        state: union(enum) {
+            closed,
+            open: struct {
+                mouse_released: bool = false,
+                overlay_bounds: PixelBBox,
+                overlay_widget: Widget(ActionType),
+                rect_widget: Widget(ActionType),
+            },
+        } = .closed,
+
+        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, color_generator: ColorGenerator, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
+            const preview = try alloc.create(Self);
+            errdefer alloc.destroy(preview);
+
+            preview.* = .{
+                .alloc = alloc,
+                .color_retriever = color_retriever,
+                .color_generator = color_generator,
+                .shared = shared,
+                .overlay = overlay,
+            };
+
+            const widget_vtable = Widget(ActionType).VTable{
+                .deinit = Self.deinit,
+                .render = Self.render,
+                .getSize = Self.getSize,
+                .setInputState = Self.setInputState,
+            };
+
+            return .{
+                .vtable = &widget_vtable,
+                .ctx = preview,
+            };
+        }
+
+        fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            alloc.destroy(self);
+        }
+
+        fn getSize(ctx: ?*anyopaque) PixelSize {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return .{
+                .width = self.shared.style.width,
+                .height = self.shared.style.color_preview_height,
+            };
+        }
+
+        fn generateOverlayWidget(self: Self) !Widget(ActionType) {
+            var layout = Layout(ActionType) { .item_pad = self.shared.style.item_pad };
+            errdefer layout.deinit(self.alloc, .full);
+
+            {
+                const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
+                errdefer title.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, title);
+
+            }
+
+            {
+                const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator).init(self.alloc, self.color_retriever, self.color_generator, self.shared);
+                const hexagon_widget = hexagon.toWidget();
+                errdefer hexagon_widget.deinit(self.alloc);
+
+                try layout.pushWidget(self.alloc, hexagon_widget);
+            }
+
+            const widget_gen = WidgetGenerator{
+                .alloc = self.alloc,
+                .label_state = self.shared.label_state,
+                .squircle_renderer = self.shared.squircle_renderer,
+                .shared = self.shared,
+            };
+
+            {
+                const red_label = try widget_gen.makeLabel(ActionType, "red");
+                errdefer red_label.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, red_label);
+            }
+
+            {
+                const red_drag = try widget_gen.makeFloatDrag(ActionType, makeColorRetrieverDependent(RedRetreiver, self.color_retriever), RedGenerator(ActionType, @TypeOf(self.color_retriever), @TypeOf(self.color_generator)){
+                    .color_retriever = self.color_retriever,
+                    .color_generator = self.color_generator,
+                });
+                errdefer red_drag.deinit(self.alloc);
+                try layout.pushWidget(self.alloc, red_drag);
+            }
+
+
+            //const green_label = try widget_gen.makeLabel("green");
+            //errdefer green_label.deinit(self.alloc);
+
+            //const green_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(GreenGenerator, self.color_retriever), &ColorPickerAction.makeChangeGreen);
+            //errdefer green_drag.deinit(self.alloc);
+
+            //const blue_label = try widget_gen.makeLabel("blue");
+            //errdefer blue_label.deinit(self.alloc);
+
+            //const blue_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(BlueGenerator, self.color_retriever), &ColorPickerAction.makeChangeBlue);
+            //errdefer blue_drag.deinit(self.alloc);
+
+
+            return try layout.toWidget(self.alloc);
+        }
+
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            if (self.state == .closed and widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const hexagon_widget = self.generateOverlayWidget() catch return null;
+                // FIXME: Error handling
+                // errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), self.alloc);
+
+                const mouse_down_pos = input_state.mouse_down_location.?;
+                var bottom: i32 = @intFromFloat(mouse_down_pos.y + 1);
+                bottom += self.shared.style.item_pad;
+                var left: i32 = @intFromFloat(mouse_down_pos.x + 1);
+                left += self.shared.style.item_pad;
+
+                const hexagon_size = hexagon_widget.getSize();
+                var overlay_bounds = PixelBBox {
+                    .top = bottom - hexagon_size.height,
+                    .bottom = bottom,
+                    .right = left + hexagon_size.width,
+                    .left = left,
+                };
+
+                // FIXME: Check other sides
+                if (overlay_bounds.top < 0) {
+                    overlay_bounds.bottom -= overlay_bounds.top;
+                    overlay_bounds.top = 0;
+                }
+
+                const rect = gui.rect.Rect(ActionType).init(self.alloc,
+                    .{
+                        .width = overlay_bounds.calcWidth() + self.shared.style.item_pad * 2,
+                        .height = overlay_bounds.calcHeight() + self.shared.style.item_pad * 2,
+                    },
+                    self.shared.style.popup_background,
+                    self.shared.squircle_renderer,
+                ) catch return null; //FIXME: errdefers and stuff
+                const rect_bounds = PixelBBox {
+                    .top = overlay_bounds.top - self.shared.style.item_pad,
+                    .bottom = overlay_bounds.bottom + self.shared.style.item_pad,
+                    .left = overlay_bounds.left - self.shared.style.item_pad,
+                    .right = overlay_bounds.right + self.shared.style.item_pad,
+                };
+
+                self.overlay.pushWidget(self.alloc, rect, rect_bounds) catch return null; //FIXME: errdefers and stuff
+                self.overlay.pushWidget(self.alloc, hexagon_widget, overlay_bounds) catch return null; //FIXME: errdefers and stuff
+                                                                                                       //
+                self.state = .{
+                    .open = .{
+                        .mouse_released = input_state.mouse_released,
+                        .overlay_bounds = overlay_bounds,
+                        .overlay_widget = hexagon_widget,
+                        .rect_widget = rect,
+                    },
+                };
+            } else if (self.state == .open) {
+                // FIXME: WTF is this whole block
+                std.debug.print("open\n", .{});
+                if (self.state.open.mouse_released) {
+                    std.debug.print("mouse released\n", .{});
+                    if (input_state.mouse_down_location) |loc| {
+                        if (!self.state.open.overlay_bounds.containsMousePos(loc)) {
+                            self.state.open.overlay_widget.deinit(self.alloc);
+                            self.overlay.reset();
+                            self.state = .closed;
+                        }
+                    }
+                }
+                if (self.state == .open) {
+                    self.state.open.mouse_released = self.state.open.mouse_released or input_state.mouse_released;
+                }
+            }
+
+            return null;
+        }
+
+        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            const transform = util.widgetToClipTransform(bounds, window_bounds);
+            const color = getColor(&self.color_retriever);
+            self.shared.squircle_renderer.render(
+                color,
+                self.shared.style.corner_radius,
+                bounds,
+                transform,
+            );
+        }
+    };
+}
+
+pub fn makeColorPreview2(comptime ActionType: type,alloc: Allocator, color_retriever: anytype, color_generator: anytype, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
+    return ColorPreview2(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(alloc, color_retriever, color_generator, shared, overlay);
+}
+
 pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
@@ -77,6 +287,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
         layout: Layout(ColorPickerAction),
         color_retriever: ColorRetriever,
         color_generator: ColorGenerator,
+        overlay: *PositionalRenderer(ActionType),
         shared: *const SharedColorPickerState,
 
         const widget_vtable = Widget(ActionType).VTable{
@@ -92,6 +303,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             color_retriever: ColorRetriever,
             color_generator: ColorGenerator,
             shared: *const SharedColorPickerState,
+            overlay: *PositionalRenderer(ActionType),
         ) !Widget(ActionType) {
             const color_picker = try alloc.create(Self);
             errdefer alloc.destroy(color_picker);
@@ -103,6 +315,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
                     .item_pad = shared.style.item_pad,
                 },
                 .shared = shared,
+                .overlay = overlay,
             };
 
             errdefer color_picker.layout.deinit(alloc, .no_widgets);
@@ -113,7 +326,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
                 .shared = shared,
             };
 
-            const hexagon = try ColorHexagon(ColorRetriever).init(alloc, color_retriever, shared);
+            const hexagon = try ColorHexagon(ColorPickerAction, ColorRetriever, *const fn (gui.Color) ColorPickerAction).init(alloc, color_retriever, &ColorPickerAction.makeChangeColor, shared);
             errdefer @TypeOf(hexagon.*).deinit(@ptrCast(hexagon), alloc);
 
             const red_label = try widget_gen.makeLabel("red");
@@ -122,7 +335,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             var rgb_layout = Layout(ColorPickerAction){ .item_pad = shared.style.item_pad };
             errdefer rgb_layout.deinit(alloc, .no_widgets);
 
-            const red_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(RedGenerator, color_retriever), &ColorPickerAction.makeChangeRed);
+            const red_drag = try widget_gen.makeFloatDrag(makeColorRetrieverDependent(RedRetreiver, color_retriever), &ColorPickerAction.makeChangeRed);
             errdefer red_drag.deinit(alloc);
 
             const green_label = try widget_gen.makeLabel("green");
@@ -152,7 +365,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             try rgb_layout.pushWidget(alloc, blue_drag);
 
             try color_picker.layout.pushWidget(alloc, try rgb_layout.toWidget(alloc));
-            try color_picker.layout.pushWidget(alloc, hexagon.toWidget(ColorPickerAction));
+            try color_picker.layout.pushWidget(alloc, hexagon.toWidget());
             try color_picker.layout.pushWidget(alloc, color_preview);
 
             return .{
@@ -181,29 +394,6 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.layout.dispatchInput(bounds, input_state)) |val| {
                 switch (val) {
-                    .change_lightness => |lightness| {
-                        var color = getColor(&self.color_retriever);
-
-                        const current_lightness = calcLightness(color);
-
-                        const eps = 1e-7;
-                        const ratio = if (current_lightness < eps)
-                            0.0
-                        else
-                            lightness / current_lightness;
-
-                        color.r *= ratio;
-                        color.g *= ratio;
-                        color.b *= ratio;
-
-                        if (current_lightness < eps) {
-                            color.r = lightness;
-                            color.g = lightness;
-                            color.b = lightness;
-                        }
-
-                        return generateAction(ActionType, &self.color_generator, color);
-                    },
                     .change_color => |color| {
                         return generateAction(ActionType, &self.color_generator, color);
                     },
@@ -242,24 +432,25 @@ pub fn makeColorPicker(
     color_retriever: anytype,
     color_generator: anytype,
     shared: *const SharedColorPickerState,
+    overlay: *PositionalRenderer(ActionType),
 ) !Widget(ActionType) {
     return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(
         alloc,
         color_retriever,
         color_generator,
         shared,
+        overlay,
     );
 }
 
 const ColorPickerAction = union(enum) {
-    change_lightness: f32,
     change_color: Color,
     change_red: f32,
     change_green: f32,
     change_blue: f32,
 
-    pub fn makeLightness(val: f32) ColorPickerAction {
-        return .{ .change_lightness = val };
+    pub fn makeChangeColor(val: Color) ColorPickerAction {
+        return .{ .change_color = val };
     }
 
     pub fn makeChangeRed(val: f32) ColorPickerAction {
@@ -288,7 +479,7 @@ fn LightnessGenerator(comptime ColorRetriever: type) type {
     };
 }
 
-fn RedGenerator(comptime ColorRetriever: type) type {
+fn RedRetreiver(comptime ColorRetriever: type) type {
     return struct {
         color_retriever: ColorRetriever,
 
@@ -297,6 +488,21 @@ fn RedGenerator(comptime ColorRetriever: type) type {
         pub fn getVal(self: Self) f32 {
             const color = getColor(&self.color_retriever);
             return color.r;
+        }
+    };
+}
+
+fn RedGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+    return struct {
+        color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
+
+        const Self = @This();
+
+        pub fn generate(self: Self, val: f32) ActionType {
+            var color = getColor(&self.color_retriever);
+            color.r = val;
+            return generateAction(ActionType, &self.color_generator, color);
         }
     };
 }
@@ -339,9 +545,9 @@ const WidgetGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
     shared: *const SharedColorPickerState,
 
-    fn makeLabel(self: WidgetGenerator, name: []const u8) !Widget(ColorPickerAction) {
+    fn makeLabel( self: WidgetGenerator, comptime ActionType: type,name: []const u8) !Widget(ActionType) {
         return gui.label.makeLabel(
-            ColorPickerAction,
+            ActionType,
             self.alloc,
             name,
             std.math.maxInt(u31),
@@ -349,9 +555,9 @@ const WidgetGenerator = struct {
         );
     }
 
-    fn makeFloatDrag(self: WidgetGenerator, val: anytype, generator: anytype) !Widget(ColorPickerAction) {
+    fn makeFloatDrag(self: WidgetGenerator, comptime ActionType: type, val: anytype, generator: anytype) !Widget(ActionType) {
         return gui.drag_float.makeWidget(
-            ColorPickerAction,
+            ActionType,
             self.alloc,
             val,
             generator,
@@ -456,25 +662,27 @@ fn getColor(color_retriever: anytype) Color {
 }
 
 const hexagon_width_ratio: [2]i32 = .{ 17, 20 };
-fn ColorHexagon(comptime ColorRetriever: type) type {
+fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
         color_retriever: ColorRetriever,
+        color_generator: ColorGenerator,
         shared: *const SharedColorPickerState,
 
-        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, shared: *const SharedColorPickerState) !*Self {
+        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, color_generator: ColorGenerator, shared: *const SharedColorPickerState) !*Self {
             const color_picker = try alloc.create(Self);
             errdefer alloc.destroy(color_picker);
 
             color_picker.* = .{
                 .color_retriever = color_retriever,
+                .color_generator = color_generator,
                 .shared = shared,
             };
 
             return color_picker;
         }
 
-        fn toWidget(self: *Self, comptime ActionType: type) Widget(ActionType) {
+        fn toWidget(self: *Self) Widget(ActionType) {
             const widget_vtable = Widget(ActionType).VTable{
                 .deinit = Self.deinit,
                 .render = Self.render,
@@ -507,18 +715,18 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
             _ = self;
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ColorPickerAction {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
             const self: *@This() = @ptrCast(@alignCast(ctx));
 
             const prev_color = getColor(&self.color_retriever);
-            const lightness = calcLightness(prev_color);
+            const current_lightness = calcLightness(prev_color);
 
-            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, lightness);
+            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, current_lightness);
             const hexagon_bounds = split_bounds[0];
 
             if (hexagon_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                const new_color = pixelToRgb(lightness, input_state.mouse_pos, hexagon_bounds);
-                return .{ .change_color = new_color };
+                const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, hexagon_bounds);
+                return self.color_generator(new_color);
             }
 
             const lightness_bounds = split_bounds[1].merge(split_bounds[2]);
@@ -528,7 +736,25 @@ fn ColorHexagon(comptime ColorRetriever: type) type {
                 const lightness_bounds_bottom_f: f32 = @floatFromInt(lightness_bounds.bottom);
                 const mouse_bottom_offs = lightness_bounds_bottom_f - input_state.mouse_pos.y;
                 const new_lightness = mouse_bottom_offs / lightness_bounds_height_f;
-                return .{ .change_lightness = new_lightness };
+                var color = getColor(&self.color_retriever);
+
+                const eps = 1e-7;
+                const ratio = if (current_lightness < eps)
+                    0.0
+                else
+                    new_lightness / current_lightness;
+
+                color.r *= ratio;
+                color.g *= ratio;
+                color.b *= ratio;
+
+                if (current_lightness < eps) {
+                    color.r = new_lightness;
+                    color.g = new_lightness;
+                    color.b = new_lightness;
+                }
+
+                return generateAction(ActionType, &self.color_generator, color);
             }
 
             return null;
