@@ -72,7 +72,7 @@ pub const SharedColorPickerState = struct {
     }
 };
 
-pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
         alloc: Allocator,
@@ -134,7 +134,9 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
             const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
             try layout.pushOrDeinitWidget(self.alloc, title);
 
-            const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator).init(self.alloc, self.color_retriever, self.color_generator, self.shared);
+            const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator)
+                .init(self.alloc, self.color_retriever, self.color_generator, self.shared);
+
             const hexagon_widget = hexagon.toWidget();
             try layout.pushOrDeinitWidget(self.alloc, hexagon_widget);
 
@@ -176,15 +178,15 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
         };
 
         fn makeOverlayWidgets(self: *Self, overlay_pos: MousePos) !OverlayWidgets {
-            const hexagon_widget = try self.generateOverlayWidget();
-            errdefer hexagon_widget.deinit(self.alloc);
+            const content_widget = try self.generateOverlayWidget();
+            errdefer content_widget.deinit(self.alloc);
 
             var bottom: i32 = @intFromFloat(overlay_pos.y + 1);
             bottom += self.shared.style.item_pad;
             var left: i32 = @intFromFloat(overlay_pos.x + 1);
             left += self.shared.style.item_pad;
 
-            const hexagon_size = hexagon_widget.getSize();
+            const hexagon_size = content_widget.getSize();
             var overlay_bounds = PixelBBox{
                 .top = bottom - hexagon_size.height,
                 .bottom = bottom,
@@ -217,7 +219,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
             };
 
             return .{
-                .content = hexagon_widget,
+                .content = content_widget,
                 .bounds = overlay_bounds,
                 .background = rect,
                 .background_bounds = rect_bounds,
@@ -228,9 +230,12 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
             const overlay_widgets = try self.makeOverlayWidgets(overlay_pos);
             errdefer self.overlay.reset(self.alloc);
 
-            const ret1 = self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.background, overlay_widgets.background_bounds);
+            self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.background, overlay_widgets.background_bounds) catch |e| {
+                overlay_widgets.content.deinit(self.alloc);
+                return e;
+            };
+
             try self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.content, overlay_widgets.bounds);
-            try ret1;
 
             self.state = .{
                 .open = .{
@@ -254,6 +259,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
                         }
                     }
                 }
+
                 if (self.state == .open) {
                     self.state.open.mouse_released = self.state.open.mouse_released or input_state.mouse_released;
                 }
@@ -267,6 +273,7 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
 
             const transform = util.widgetToClipTransform(bounds, window_bounds);
             const color = getColor(&self.color_retriever);
+
             self.shared.squircle_renderer.render(
                 color,
                 self.shared.style.corner_radius,
@@ -277,8 +284,16 @@ pub fn ColorPreview2(comptime ActionType: type, comptime ColorRetriever: type, c
     };
 }
 
-pub fn makeColorPreview2(comptime ActionType: type, alloc: Allocator, color_retriever: anytype, color_generator: anytype, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
-    return ColorPreview2(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator)).init(alloc, color_retriever, color_generator, shared, overlay);
+pub fn makeColorPicker(
+    comptime ActionType: type,
+    alloc: Allocator,
+    color_retriever: anytype,
+    color_generator: anytype,
+    shared: *const SharedColorPickerState,
+    overlay: *PositionalRenderer(ActionType),
+) !Widget(ActionType) {
+    return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator))
+        .init(alloc, color_retriever, color_generator, shared, overlay);
 }
 
 fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
@@ -421,7 +436,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             const self: *Self = @ptrCast(@alignCast(ctx));
             return .{
                 .width = self.shared.style.width,
-                .height = @intCast(@divTrunc(self.shared.style.width * hexagon_width_ratio[0], hexagon_width_ratio[1])),
+                .height = @intCast(@divTrunc(self.shared.style.width * hexagon_width_ratio[0], hexagon_width_ratio[1]) + self.shared.style.drag_style.size.height + self.shared.style.item_pad),
             };
         }
 
@@ -436,19 +451,18 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             const prev_color = getColor(&self.color_retriever);
             const current_lightness = calcLightness(prev_color);
 
-            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, current_lightness);
-            const hexagon_bounds = split_bounds[0];
+            const split_bounds = splitHexagonBounds(self.shared.style, bounds, current_lightness);
 
-            if (hexagon_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, hexagon_bounds);
+            if (split_bounds.hexagon.containsOptMousePos(input_state.mouse_down_location)) {
+                const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, split_bounds.hexagon);
                 return self.color_generator(new_color);
             }
 
-            const lightness_bounds = split_bounds[1].merge(split_bounds[2]);
+            const lightness_input_bounds = split_bounds.lightness.merge(split_bounds.pointer);
 
-            if (lightness_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                const lightness_bounds_height_f: f32 = @floatFromInt(lightness_bounds.calcHeight());
-                const lightness_bounds_bottom_f: f32 = @floatFromInt(lightness_bounds.bottom);
+            if (lightness_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const lightness_bounds_height_f: f32 = @floatFromInt(lightness_input_bounds.calcHeight());
+                const lightness_bounds_bottom_f: f32 = @floatFromInt(lightness_input_bounds.bottom);
                 const mouse_bottom_offs = lightness_bounds_bottom_f - input_state.mouse_pos.y;
                 const new_lightness = mouse_bottom_offs / lightness_bounds_height_f;
                 var color = getColor(&self.color_retriever);
@@ -491,12 +505,9 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 break :blk max_color;
             };
 
-            const split_bounds = splitHexagonBounds(bounds, self.shared.style.item_pad, lightness);
-            const hexagon_bounds = split_bounds[0];
-            const lightness_bounds = split_bounds[1];
-            const triangle_bounds = split_bounds[2];
+            const split_bounds = splitHexagonBounds(self.shared.style, bounds, lightness);
 
-            const transform = util.widgetToClipTransform(hexagon_bounds, window_bounds);
+            const transform = util.widgetToClipTransform(split_bounds.hexagon, window_bounds);
             self.shared.hexagon_renderer.render(self.shared.vertex_buffer, &.{}, &.{
                 .{
                     .idx = ColorUniformIndex.lightness.asIndex(),
@@ -508,7 +519,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 },
             }, transform);
 
-            const lightness_transform = util.widgetToClipTransform(lightness_bounds, window_bounds);
+            const lightness_transform = util.widgetToClipTransform(split_bounds.lightness, window_bounds);
             self.shared.lightness_renderer.render(
                 self.shared.vertex_buffer,
                 &.{},
@@ -521,8 +532,8 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                         .idx = @intFromEnum(LightnessUniformIndex.total_size),
                         .val = .{
                             .float2 = .{
-                                @floatFromInt(lightness_bounds.calcWidth()),
-                                @floatFromInt(lightness_bounds.calcHeight()),
+                                @floatFromInt(split_bounds.lightness.calcWidth()),
+                                @floatFromInt(split_bounds.lightness.calcHeight()),
                             },
                         },
                     },
@@ -534,48 +545,100 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 lightness_transform,
             );
 
-            const triangle_transform = util.widgetToClipTransform(triangle_bounds, window_bounds);
+            const triangle_transform = util.widgetToClipTransform(split_bounds.pointer, window_bounds);
 
             self.shared.squircle_renderer.render(
                 .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-                @floatFromInt(triangle_bounds.calcWidth() / 2),
-                triangle_bounds,
+                @floatFromInt(split_bounds.pointer.calcWidth() / 2),
+                split_bounds.pointer,
                 triangle_transform,
+            );
+
+            const preview_transform = util.widgetToClipTransform(split_bounds.preview, window_bounds);
+            self.shared.squircle_renderer.render(
+                color,
+                self.shared.style.corner_radius,
+                split_bounds.preview,
+                preview_transform,
             );
         }
     };
 }
 
-fn splitHexagonBounds(bounds: PixelBBox, padding: i32, lightness: f32) [3]PixelBBox {
-    const width = bounds.calcWidth();
-    var hexagon_bounds = bounds;
-    hexagon_bounds.right = bounds.left + @divTrunc(width * hexagon_width_ratio[0], hexagon_width_ratio[1]);
+const SplitHexagonBounds = struct {
+    hexagon: PixelBBox,
+    pointer: PixelBBox,
+    lightness: PixelBBox,
+    preview: PixelBBox,
+};
+
+fn splitHexagonBounds(style: ColorStyle, bounds: PixelBBox, lightness: f32) SplitHexagonBounds {
+    // Bounds should be allocated
+    //
+    //             lightness
+    //               v
+    // -------------------
+    // |    ___    |   | |
+    // |   /   \   |   | |
+    // |   \   /   |   |o|< pointer
+    // |    ^^^    |   | |
+    // |-----------------|
+    // | Preview segment |
+    // -------------------
+
+    const preview_bounds = PixelBBox{
+        .top = bounds.bottom - style.drag_style.size.height,
+        .bottom = bounds.bottom,
+        .left = bounds.left,
+        .right = bounds.right,
+    };
+
+    var remaining_bounds = bounds;
+    remaining_bounds.bottom = preview_bounds.top - style.item_pad;
+
+    const width = remaining_bounds.calcWidth();
+    const hexagon_bounds = PixelBBox{
+        .left = remaining_bounds.left,
+        .right = remaining_bounds.left + remaining_bounds.calcHeight(),
+        .top = remaining_bounds.top,
+        .bottom = remaining_bounds.bottom,
+    };
+    std.debug.assert(hexagon_bounds.right < bounds.right);
+
+    remaining_bounds.left = hexagon_bounds.right + style.item_pad;
 
     const triangle_width = @divTrunc(width, 20);
 
-    var lightness_bounds = bounds;
-    lightness_bounds.left = hexagon_bounds.right + padding;
-    lightness_bounds.right = bounds.right - padding - triangle_width;
-    lightness_bounds.top += @divTrunc(triangle_width, 2);
-    lightness_bounds.bottom -= @divTrunc(triangle_width, 2);
+    const lightness_bounds = PixelBBox{
+        .left = remaining_bounds.left,
+        .right = bounds.right - style.item_pad - triangle_width,
+        .top = remaining_bounds.top + @divTrunc(triangle_width, 2),
+        .bottom = remaining_bounds.bottom - @divTrunc(triangle_width, 2),
+    };
 
-    var triangle_bounds = bounds;
+    var triangle_bounds = PixelBBox{
+        .top = remaining_bounds.top,
+        .bottom = remaining_bounds.bottom,
+        .left = remaining_bounds.right - triangle_width,
+        .right = remaining_bounds.right,
+    };
     triangle_bounds.left = bounds.right - triangle_width;
 
-    const total_lightness_range_px: f32 = @floatFromInt(bounds.calcHeight() - triangle_width);
+    const total_lightness_range_px: f32 = @floatFromInt(remaining_bounds.calcHeight() - triangle_width);
     const triangle_bottom_offs: i32 = @intFromFloat(total_lightness_range_px * lightness);
 
     triangle_bounds.bottom = std.math.clamp(
-        bounds.bottom - triangle_bottom_offs,
-        bounds.top + triangle_width,
-        bounds.bottom,
+        remaining_bounds.bottom - triangle_bottom_offs,
+        remaining_bounds.top + triangle_width,
+        remaining_bounds.bottom,
     );
     triangle_bounds.top = triangle_bounds.bottom - triangle_width;
 
     return .{
-        hexagon_bounds,
-        lightness_bounds,
-        triangle_bounds,
+        .hexagon = hexagon_bounds,
+        .pointer = triangle_bounds,
+        .lightness = lightness_bounds,
+        .preview = preview_bounds,
     };
 }
 const hsv_rgb_axis = ColorAxis.calcHsvFacing();

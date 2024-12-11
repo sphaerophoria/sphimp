@@ -296,7 +296,7 @@ const AppLayoutGenerator = struct {
         }
 
         {
-            const color_popup = try gui.color_picker.makeColorPreview2(
+            const color_popup = try gui.color_picker.makeColorPicker(
                 UiAction,
                 alloc,
                 &app.hightlight_color,

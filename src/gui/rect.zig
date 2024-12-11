@@ -57,7 +57,6 @@ pub fn Rect(comptime ActionType: type) type {
 
             const transform = util.widgetToClipTransform(bounds, window);
 
-            std.debug.print("rendering: {any}\n",. {bounds});
             self.renderer.render(
                 self.color,
                 1.0,
