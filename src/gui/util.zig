@@ -4,6 +4,7 @@ const sphmath = @import("sphmath");
 const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const MousePos = gui.MousePos;
+const InputState = gui.InputState;
 
 pub fn ReturnType(F: anytype) type {
     return @typeInfo(@TypeOf(F)).Fn.return_type.?;
@@ -62,3 +63,13 @@ pub fn centerBoxInBounds(box: PixelSize, bounds: PixelBBox) PixelBBox {
 
     return output;
 }
+
+pub fn itemConsumesInput(item_bounds: PixelBBox, input_state: InputState) bool {
+    // FIXME: Maybe widgets should say if they consume input
+    if (input_state.mouse_down_location) |loc| {
+        return item_bounds.containsMousePos(loc);
+    } else {
+        return item_bounds.containsMousePos(input_state.mouse_pos);
+    }
+}
+

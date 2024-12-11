@@ -10,7 +10,7 @@ const MousePos = gui.MousePos;
 const PixelSize = gui.PixelSize;
 const PixelBBox = gui.PixelBBox;
 const InputState = gui.InputState;
-const PositionalRenderer = gui.positional_renderer.PositionalRenderer;
+const PopupLayer = gui.popup_layer.PopupLayer;
 const Color = gui.Color;
 const PlaneRenderProgram = sphrender.PlaneRenderProgram;
 const SquircleRenderer = @import("SquircleRenderer.zig");
@@ -79,18 +79,10 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
         alloc: Allocator,
         color_retriever: ColorRetriever,
         color_generator: ColorGenerator,
-        overlay: *PositionalRenderer(ActionType),
+        overlay: *PopupLayer(ActionType),
         shared: *const SharedColorPickerState,
 
-        state: union(enum) {
-            closed,
-            open: struct {
-                mouse_released: bool = false,
-                overlay_bounds: PixelBBox,
-            },
-        } = .closed,
-
-        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, color_generator: ColorGenerator, shared: *const SharedColorPickerState, overlay: *PositionalRenderer(ActionType)) !Widget(ActionType) {
+        pub fn init(alloc: Allocator, color_retriever: ColorRetriever, color_generator: ColorGenerator, shared: *const SharedColorPickerState, overlay: *PopupLayer(ActionType)) !Widget(ActionType) {
             const preview = try alloc.create(Self);
             errdefer alloc.destroy(preview);
 
@@ -214,7 +206,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             return stack.toWidget();
         }
 
-        fn spawnOverlay(self: *Self, overlay_pos: MousePos, mouse_released: bool) !void {
+        fn spawnOverlay(self: *Self, overlay_pos: MousePos) !void {
             const stack = try self.makeOverlayStack();
 
             var bottom: i32 = @intFromFloat(overlay_pos.y + 1);
@@ -223,6 +215,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             left += self.shared.style.item_pad;
 
             const stack_size = stack.getSize();
+            // FIXME: Why bounds
             var overlay_bounds = PixelBBox{
                 .top = bottom - stack_size.height,
                 .bottom = bottom,
@@ -231,38 +224,19 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             };
 
             // FIXME: Check other sides
+            // FIXME: Bounds adjustment should be handled by popuplayer
             if (overlay_bounds.top < 0) {
                 overlay_bounds.bottom -= overlay_bounds.top;
                 overlay_bounds.top = 0;
             }
 
-            try self.overlay.pushOrDeinitWidget(self.alloc, stack, overlay_bounds);
-            self.state = .{
-                .open = .{
-                    .mouse_released = mouse_released,
-                    .overlay_bounds = overlay_bounds,
-                },
-            };
+            self.overlay.set(self.alloc, stack, overlay_bounds.left, overlay_bounds.top);
         }
 
         fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            if (self.state == .closed and widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                self.spawnOverlay(input_state.mouse_down_location.?, input_state.mouse_released) catch return null;
-            } else if (self.state == .open) {
-                // FIXME: WTF is this whole block
-                if (self.state.open.mouse_released) {
-                    if (input_state.mouse_down_location) |loc| {
-                        if (!self.state.open.overlay_bounds.containsMousePos(loc)) {
-                            self.overlay.reset(self.alloc);
-                            self.state = .closed;
-                        }
-                    }
-                }
-
-                if (self.state == .open) {
-                    self.state.open.mouse_released = self.state.open.mouse_released or input_state.mouse_released;
-                }
+            if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                self.spawnOverlay(input_state.mouse_down_location.?) catch return null;
             }
 
             return null;
@@ -290,7 +264,7 @@ pub fn makeColorPicker(
     color_retriever: anytype,
     color_generator: anytype,
     shared: *const SharedColorPickerState,
-    overlay: *PositionalRenderer(ActionType),
+    overlay: *PopupLayer(ActionType),
 ) !Widget(ActionType) {
     return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator))
         .init(alloc, color_retriever, color_generator, shared, overlay);

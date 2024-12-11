@@ -105,21 +105,12 @@ pub fn Stack(comptime ActionType: type) type {
                     ret = action;
                 }
 
-                if (itemConsumesInput(item_bounds, input_state)) {
+                if (util.itemConsumesInput(item_bounds, input_state)) {
                     break;
                 }
             }
 
             return ret;
-        }
-
-        fn itemConsumesInput(item_bounds: PixelBBox, input_state: InputState) bool {
-            // FIXME: Maybe widgets should say if they consume input
-            if (input_state.mouse_down_location) |loc| {
-                return item_bounds.containsMousePos(loc);
-            } else {
-                return item_bounds.containsMousePos(input_state.mouse_pos);
-            }
         }
 
         fn itemBounds(stack_bounds: PixelBBox, widget: Widget(ActionType)) PixelBBox {

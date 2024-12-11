@@ -260,7 +260,7 @@ const AppLayoutGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
     scroll_style: *const gui.scrollbar.Style,
     shared_color: *const gui.color_picker.SharedColorPickerState,
-    overlay: *gui.positional_renderer.PositionalRenderer(UiAction),
+    overlay: *gui.popup_layer.PopupLayer(UiAction),
     layout_item_pad: u31,
 
     fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !ScrollView(UiAction) {
@@ -391,11 +391,10 @@ const AppLayoutGenerator = struct {
     }
 };
 
-fn getInputAction(layout: *ScrollView(UiAction), overlay: *gui.positional_renderer.PositionalRenderer(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
-    if (overlay.dispatchInput(input_state)) |input_res| {
-        if (input_res.consumed) {
-            return input_res.action;
-        }
+fn getInputAction(layout: *ScrollView(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
+
+    if (overlay.getSize().width != 0) {
+        return overlay.setInputState(layout_bounds, input_state);
     }
 
     return layout.dispatchInput(input_state, layout_bounds);
@@ -503,9 +502,10 @@ pub fn main() !void {
     );
     defer color_picker_state.deinit(alloc);
 
-    var overlay = gui.positional_renderer.PositionalRenderer(UiAction){};
-    defer overlay.deinit(alloc);
+    var overlay = gui.popup_layer.PopupLayer(UiAction){};
+    defer overlay.reset();
 
+    const overlay_widget = overlay.asWidget();
     const layout_generator = AppLayoutGenerator{
         .shared_label_state = &shared_label_state,
         .drag_style = &drag_style,
@@ -542,7 +542,7 @@ pub fn main() !void {
             .height = window_bounds.calcHeight(),
         };
 
-        try overlay.update(window_size);
+        try overlay_widget.update(window_size);
         try layout.update(window_size);
 
         input_state.startFrame();
@@ -550,7 +550,7 @@ pub fn main() !void {
             input_state.pushInput(action);
         }
 
-        const action_opt = getInputAction(&layout, &overlay, input_state, window_bounds);
+        const action_opt = getInputAction(&layout, overlay_widget, input_state, window_bounds);
         if (action_opt) |action| {
             switch (action) {
                 .change_button_state => |idx| {
@@ -591,7 +591,7 @@ pub fn main() !void {
 
         layout.render(window_bounds, window_bounds);
 
-        overlay.render(window_bounds);
+        overlay_widget.render(window_bounds, window_bounds);
 
         glfw.swapBuffers();
     }

@@ -8,7 +8,7 @@ pub const button = @import("button.zig");
 pub const layout = @import("layout.zig");
 pub const scrollbar = @import("scrollbar.zig");
 pub const color_picker = @import("color_picker.zig");
-pub const positional_renderer = @import("positional_renderer.zig");
+pub const popup_layer = @import("popup_layer.zig");
 pub const stack = @import("stack.zig");
 pub const rect = @import("rect.zig");
 
