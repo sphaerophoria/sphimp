@@ -106,6 +106,7 @@ const LayoutHelper = struct {
         text_idx: usize = 0,
         glyphs_len: usize = 0,
         bounds: LayoutBox = .{},
+        start_x: i64 = 0,
     };
 
     fn init(alloc: Allocator, text: []const u8, ttf: *const ttf_mod.Ttf, wrap_width_px: u32, font_size: f32) LayoutHelper {
@@ -143,7 +144,7 @@ const LayoutHelper = struct {
         };
 
         const new_bounds = self.bounds.merge(glyph_bounds);
-        if (new_bounds.width() > self.wrap_width_px and self.funit_cursor_x != 0) {
+        if (new_bounds.width() > self.wrap_width_px and self.rollback_data.start_x != 0) {
             self.rollback();
             self.advanceLine();
             return true;
@@ -214,6 +215,7 @@ const LayoutHelper = struct {
         self.text_idx = self.rollback_data.text_idx;
         self.glyphs.resize(self.rollback_data.glyphs_len) catch unreachable;
         self.bounds = self.rollback_data.bounds;
+        self.funit_cursor_x = self.rollback_data.start_x;
     }
 };
 

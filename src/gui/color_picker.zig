@@ -197,12 +197,12 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
 
             const overlay_widgets = try self.makeOverlayWidgets();
 
-            stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.background) catch |e| {
+            stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.background, .centered) catch |e| {
                 overlay_widgets.content.deinit(self.alloc);
                 return e;
             };
 
-            try stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.content);
+            try stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.content, .centered);
             return stack.toWidget();
         }
 

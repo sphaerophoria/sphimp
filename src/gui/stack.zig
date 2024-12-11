@@ -10,10 +10,23 @@ const InputState = gui.InputState;
 
 pub fn Stack(comptime ActionType: type) type {
     return struct {
-        widgets: std.ArrayListUnmanaged(Widget(ActionType)) = .{},
+        items: std.ArrayListUnmanaged(StackItem) = .{},
         total_size: PixelSize = .{ .width = 0, .height = 0 },
 
         const Self = @This();
+
+        pub const Layout = union(enum) {
+            centered,
+            offset: struct {
+                x_offs: i32,
+                y_offs: i32,
+            },
+        };
+
+        const StackItem = struct {
+            layout: Layout,
+            widget: Widget(ActionType),
+        };
 
         const widget_vtable = Widget(ActionType).VTable {
             .deinit = Self.deinitWidget,
@@ -30,20 +43,22 @@ pub fn Stack(comptime ActionType: type) type {
         }
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
-            for (self.widgets.items) |widget| {
-                widget.deinit(alloc);
+            for (self.items.items) |item| {
+                item.widget.deinit(alloc);
             }
-            self.widgets.deinit(alloc);
+            self.items.deinit(alloc);
             alloc.destroy(self);
         }
 
-        pub fn pushWidgetOrDeinit(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
+        pub fn pushWidgetOrDeinit(self: *Self, alloc: Allocator, widget: Widget(ActionType), layout: Layout) !void {
             errdefer widget.deinit(alloc);
-            try self.widgets.append(alloc, widget);
+            try self.items.append(alloc, .{
+                .layout = layout,
+                .widget = widget,
+            });
 
             const item_size = widget.getSize();
-            self.total_size.width = @max(self.total_size.width, item_size.width);
-            self.total_size.height = @max(self.total_size.height, item_size.height);
+            self.total_size = newTotalSize(self.total_size, layout, item_size);
         }
 
         pub fn toWidget(self: *Self) Widget(ActionType) {
@@ -60,8 +75,8 @@ pub fn Stack(comptime ActionType: type) type {
 
         fn render(ctx: ?*anyopaque, stack_bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            for (self.widgets.items) |widget| {
-                widget.render(itemBounds(stack_bounds, widget), window_bounds);
+            for (self.items.items) |item| {
+                item.widget.render(itemBounds(stack_bounds, item.layout, item.widget), window_bounds);
             }
         }
 
@@ -72,21 +87,14 @@ pub fn Stack(comptime ActionType: type) type {
 
         fn update(ctx: ?*anyopaque, available_size: PixelSize)!void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            var max_width: u31 = 0;
-            var max_height: u31 = 0;
+            self.total_size = .{ .width = 0, .height = 0 };
 
-            for (self.widgets.items) |widget| {
-                try widget.update(available_size);
+            for (self.items.items) |item| {
+                try item.widget.update(available_size);
 
-                const widget_size = widget.getSize();
-                max_width = @max(max_width, widget_size.width);
-                max_height = @max(max_height, widget_size.height);
+                const item_size = item.widget.getSize();
+                self.total_size = newTotalSize(self.total_size, item.layout, item_size);
             }
-
-            self.total_size = .{
-                .width = max_width,
-                .height = max_height,
-            };
         }
 
         fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_state: InputState) ?ActionType {
@@ -94,14 +102,14 @@ pub fn Stack(comptime ActionType: type) type {
 
             var ret: ?ActionType  = null;
 
-            var i: usize = self.widgets.items.len;
+            var i: usize = self.items.items.len;
             while (i > 0) {
                 i -= 1;
 
-                const widget = self.widgets.items[i];
-                const item_bounds = itemBounds(stack_bounds, widget);
+                const item = self.items.items[i];
+                const item_bounds = itemBounds(stack_bounds, item.layout, item.widget);
 
-                if (widget.setInputState(item_bounds, input_state)) |action| {
+                if (item.widget.setInputState(item_bounds, input_state)) |action| {
                     ret = action;
                 }
 
@@ -113,8 +121,36 @@ pub fn Stack(comptime ActionType: type) type {
             return ret;
         }
 
-        fn itemBounds(stack_bounds: PixelBBox, widget: Widget(ActionType)) PixelBBox {
-            return util.centerBoxInBounds(widget.getSize(), stack_bounds);
+        fn itemBounds(stack_bounds: PixelBBox, layout: Layout, widget: Widget(ActionType)) PixelBBox {
+            switch (layout) {
+                .centered => return util.centerBoxInBounds(widget.getSize(), stack_bounds),
+                .offset => |offs| {
+                    const item_size = widget.getSize();
+                    const left = stack_bounds.left + offs.x_offs;
+                    const top = stack_bounds.top + offs.y_offs;
+                    return .{
+                        .left = left,
+                        .right = left + item_size.width,
+                        .top = top,
+                        .bottom = top + item_size.height,
+                    };
+                },
+            }
+        }
+
+        fn newTotalSize(old_size: PixelSize, layout: Layout, widget_size: PixelSize) PixelSize {
+            var new_size = old_size;
+            switch (layout) {
+                .centered => {
+                    new_size.width = @max(new_size.width, widget_size.width);
+                    new_size.height = @max(new_size.height, widget_size.height);
+                },
+                .offset => |offs| {
+                    new_size.width = @max(new_size.width, widget_size.width + offs.x_offs);
+                    new_size.height = @max(new_size.height, widget_size.height + offs.y_offs);
+                },
+            }
+            return new_size;
         }
     };
 }

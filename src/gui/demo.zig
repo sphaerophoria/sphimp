@@ -169,6 +169,13 @@ const App = struct {
     counter: i64 = 0,
     hightlight_color: Color = GlobalStyle.default_color,
     sample_color: Color = GlobalStyle.default_color,
+    text_input: [5]std.ArrayListUnmanaged(u8) = .{.{}} ** 5,
+
+    fn deinit(self: *App, alloc: Allocator) void {
+        for (&self.text_input) |*input| {
+            input.deinit(alloc);
+        }
+    }
 };
 
 const UiAction = union(enum) {
@@ -181,6 +188,10 @@ const UiAction = union(enum) {
     decrement_counter,
     change_highlight_color: Color,
     change_sample_color: Color,
+    append_letter: struct {
+        idx: usize,
+        char: u8,
+    },
 
     fn makeChangeHighlightColor(color: Color) UiAction {
         return .{ .change_highlight_color = color };
@@ -189,6 +200,21 @@ const UiAction = union(enum) {
     fn makeChangeSampleColor(color: Color) UiAction {
         return .{ .change_sample_color = color };
     }
+};
+
+const MakeAppendLetter = struct {
+    idx: usize,
+
+    pub fn generate(self: MakeAppendLetter, char: u8) UiAction {
+        return .{
+            .append_letter = .{
+                .idx = self.idx,
+                .char = char,
+            },
+        };
+
+    }
+
 };
 
 const GlobalStyle = struct {
@@ -253,6 +279,14 @@ const AppButtonTextGenerator = struct {
     }
 };
 
+const ArrayListLabelData = struct {
+    al: *std.ArrayListUnmanaged(u8),
+
+    pub fn getText(self: ArrayListLabelData) []const u8 {
+        return self.al.items;
+    }
+};
+
 const AppLayoutGenerator = struct {
     shared_label_state: *const SharedLabelState,
     drag_style: *const DragFloatStyle,
@@ -260,6 +294,7 @@ const AppLayoutGenerator = struct {
     squircle_renderer: *const SquircleRenderer,
     scroll_style: *const gui.scrollbar.Style,
     shared_color: *const gui.color_picker.SharedColorPickerState,
+    shared_textbox_state: *const gui.textbox.SharedTextboxState,
     overlay: *gui.popup_layer.PopupLayer(UiAction),
     layout_item_pad: u31,
 
@@ -288,6 +323,17 @@ const AppLayoutGenerator = struct {
                 .{ .change_button_state = idx },
             );
             try layout.pushOrDeinitWidget(alloc, button);
+        }
+
+        for (0..app.text_input.len) |idx| {
+            const text_input_label = try gui.textbox.makeTextbox(
+                UiAction,
+                alloc,
+                ArrayListLabelData {.al = &app.text_input[idx] },
+                MakeAppendLetter { .idx = idx },
+                self.shared_textbox_state,
+            );
+            try layout.pushOrDeinitWidget(alloc, text_input_label);
         }
 
         {
@@ -421,6 +467,11 @@ pub fn main() !void {
     gl.glEnable(gl.GL_BLEND);
 
     var app = App{};
+    defer app.deinit(alloc);
+    for (&app.text_input, 0..) |*input, idx| {
+        try input.appendSlice(alloc, "hello world");
+        try input.append(alloc, @intCast('0' + idx));
+    }
 
     var input_state = InputState{};
 
@@ -502,6 +553,19 @@ pub fn main() !void {
     );
     defer color_picker_state.deinit(alloc);
 
+    var textbox_state = gui.textbox.SharedTextboxState {
+        .label_state = &shared_label_state,
+        .squircle_renderer = &squircle_renderer,
+        .style = .{
+            .label_pad = widget_text_padding,
+            .background_color = GlobalStyle.default_color,
+            .size = .{
+                .width = widget_width,
+                .height = @intFromFloat(unit * 1.15),
+            }
+        }
+    };
+
     var overlay = gui.popup_layer.PopupLayer(UiAction){};
     defer overlay.reset();
 
@@ -515,6 +579,7 @@ pub fn main() !void {
         .layout_item_pad = @intFromFloat(unit / 2.0),
         .shared_color = &color_picker_state,
         .overlay = &overlay,
+        .shared_textbox_state = &textbox_state,
     };
 
     var layout = try layout_generator.generateLayoutForApp(alloc, .{
@@ -547,6 +612,16 @@ pub fn main() !void {
 
         input_state.startFrame();
         while (glfw.queue.readItem()) |action| {
+            switch (action) {
+                .key_down => |k| {
+                    if (k.key >= glfwb.GLFW_KEY_A and k.key <= glfwb.GLFW_KEY_Z) {
+                        const char: u8 = @intCast('a' + k.key - glfwb.GLFW_KEY_A);
+                        std.debug.print("got char: {c}\n", .{char});
+                        try app.text_input[0].append(alloc, char);
+                    }
+                },
+                else => {},
+            }
             input_state.pushInput(action);
         }
 
@@ -585,6 +660,9 @@ pub fn main() !void {
                 },
                 .change_sample_color => |color| {
                     app.sample_color = color;
+                },
+                .append_letter => |v| {
+                    try app.text_input[v.idx].append(alloc, v.char);
                 },
             }
         }

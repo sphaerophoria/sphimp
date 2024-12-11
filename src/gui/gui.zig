@@ -11,6 +11,7 @@ pub const color_picker = @import("color_picker.zig");
 pub const popup_layer = @import("popup_layer.zig");
 pub const stack = @import("stack.zig");
 pub const rect = @import("rect.zig");
+pub const textbox = @import("textbox.zig");
 
 test {
     std.testing.refAllDeclsRecursive(@This());
