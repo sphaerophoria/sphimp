@@ -168,6 +168,7 @@ const App = struct {
     adjustable_float: [2]f32 = .{ 1.0, 1.0 },
     counter: i64 = 0,
     hightlight_color: Color = GlobalStyle.default_color,
+    sample_color: Color = GlobalStyle.default_color,
 };
 
 const UiAction = union(enum) {
@@ -179,14 +180,19 @@ const UiAction = union(enum) {
     increment_counter,
     decrement_counter,
     change_highlight_color: Color,
+    change_sample_color: Color,
 
     fn makeChangeHighlightColor(color: Color) UiAction {
         return .{ .change_highlight_color = color };
     }
+
+    fn makeChangeSampleColor(color: Color) UiAction {
+        return .{ .change_sample_color = color };
+    }
 };
 
 const GlobalStyle = struct {
-    const default_color = Color{ .r = 0.75, .g = 0.43, .b = 0.6, .a = 1.0 };
+    const default_color = Color{ .r = 0.38, .g = 0.35, .b = 0.44, .a = 1.0 };
     const hover_color = hoverColor(default_color);
     const active_color = activeColor(default_color);
     const background_color = Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 };
@@ -301,6 +307,18 @@ const AppLayoutGenerator = struct {
                 alloc,
                 &app.hightlight_color,
                 &UiAction.makeChangeHighlightColor,
+                self.shared_color,
+                self.overlay,
+            );
+            try layout.pushOrDeinitWidget(alloc, color_popup);
+        }
+
+        {
+            const color_popup = try gui.color_picker.makeColorPicker(
+                UiAction,
+                alloc,
+                &app.sample_color,
+                &UiAction.makeChangeSampleColor,
                 self.shared_color,
                 self.overlay,
             );
@@ -563,6 +581,9 @@ pub fn main() !void {
                     color_picker_state.style.drag_style.active_color = new_active;
 
                     app.hightlight_color = color;
+                },
+                .change_sample_color => |color| {
+                    app.sample_color = color;
                 },
             }
         }
