@@ -173,25 +173,60 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
 
         const OverlayWidgets = struct {
             content: Widget(ActionType),
-            bounds: PixelBBox,
             background: Widget(ActionType),
-            background_bounds: PixelBBox,
         };
 
-        fn makeOverlayWidgets(self: *Self, overlay_pos: MousePos) !OverlayWidgets {
+        fn makeOverlayWidgets(self: *Self) !OverlayWidgets {
             const content_widget = try self.generateOverlayWidget();
             errdefer content_widget.deinit(self.alloc);
+
+            const content_size = content_widget.getSize();
+
+            const rect = try gui.rect.Rect(ActionType).init(
+                self.alloc,
+                .{
+                    .width = content_size.width + self.shared.style.item_pad * 2,
+                    .height = content_size.height + self.shared.style.item_pad * 2,
+                },
+                self.shared.style.popup_background,
+                self.shared.squircle_renderer,
+            );
+            errdefer rect.deinit(self.alloc);
+
+            return .{
+                .content = content_widget,
+                .background = rect,
+            };
+        }
+
+        fn makeOverlayStack(self: *Self) !Widget(ActionType) {
+            const stack = try gui.stack.Stack(ActionType).init(self.alloc);
+            errdefer stack.deinit(self.alloc);
+
+            const overlay_widgets = try self.makeOverlayWidgets();
+
+            stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.background) catch |e| {
+                overlay_widgets.content.deinit(self.alloc);
+                return e;
+            };
+
+            try stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.content);
+            return stack.toWidget();
+        }
+
+        fn spawnOverlay(self: *Self, overlay_pos: MousePos, mouse_released: bool) !void {
+            const stack = try self.makeOverlayStack();
 
             var bottom: i32 = @intFromFloat(overlay_pos.y + 1);
             bottom += self.shared.style.item_pad;
             var left: i32 = @intFromFloat(overlay_pos.x + 1);
             left += self.shared.style.item_pad;
 
-            const hexagon_size = content_widget.getSize();
+            const stack_size = stack.getSize();
             var overlay_bounds = PixelBBox{
-                .top = bottom - hexagon_size.height,
+                .top = bottom - stack_size.height,
                 .bottom = bottom,
-                .right = left + hexagon_size.width,
+                .right = left + stack_size.width,
                 .left = left,
             };
 
@@ -201,47 +236,11 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
                 overlay_bounds.top = 0;
             }
 
-            const rect = try gui.rect.Rect(ActionType).init(
-                self.alloc,
-                .{
-                    .width = overlay_bounds.calcWidth() + self.shared.style.item_pad * 2,
-                    .height = overlay_bounds.calcHeight() + self.shared.style.item_pad * 2,
-                },
-                self.shared.style.popup_background,
-                self.shared.squircle_renderer,
-            );
-            errdefer rect.deinit(self.alloc);
-
-            const rect_bounds = PixelBBox{
-                .top = overlay_bounds.top - self.shared.style.item_pad,
-                .bottom = overlay_bounds.bottom + self.shared.style.item_pad,
-                .left = overlay_bounds.left - self.shared.style.item_pad,
-                .right = overlay_bounds.right + self.shared.style.item_pad,
-            };
-
-            return .{
-                .content = content_widget,
-                .bounds = overlay_bounds,
-                .background = rect,
-                .background_bounds = rect_bounds,
-            };
-        }
-
-        fn spawnOverlay(self: *Self, overlay_pos: MousePos, mouse_released: bool) !void {
-            const overlay_widgets = try self.makeOverlayWidgets(overlay_pos);
-            errdefer self.overlay.reset(self.alloc);
-
-            self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.background, overlay_widgets.background_bounds) catch |e| {
-                overlay_widgets.content.deinit(self.alloc);
-                return e;
-            };
-
-            try self.overlay.pushOrDeinitWidget(self.alloc, overlay_widgets.content, overlay_widgets.bounds);
-
+            try self.overlay.pushOrDeinitWidget(self.alloc, stack, overlay_bounds);
             self.state = .{
                 .open = .{
                     .mouse_released = mouse_released,
-                    .overlay_bounds = overlay_widgets.bounds,
+                    .overlay_bounds = overlay_bounds,
                 },
             };
         }
