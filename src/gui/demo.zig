@@ -490,7 +490,8 @@ pub fn main() !void {
     var color_picker_state = try gui.color_picker.SharedColorPickerState.init(
         alloc,
         gui.color_picker.ColorStyle{
-            .width = widget_width,
+            .preview_width = widget_width,
+            .popup_width = widget_width,
             .popup_background = GlobalStyle.background_color2,
             .color_preview_height = slider_height,
             .item_pad = widget_text_padding,

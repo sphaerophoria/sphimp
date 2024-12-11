@@ -16,7 +16,8 @@ const PlaneRenderProgram = sphrender.PlaneRenderProgram;
 const SquircleRenderer = @import("SquircleRenderer.zig");
 
 pub const ColorStyle = struct {
-    width: u31,
+    preview_width: u31,
+    popup_width: u31,
     popup_background: Color,
     color_preview_height: u31,
     corner_radius: f32,
@@ -122,7 +123,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return .{
-                .width = self.shared.style.width,
+                .width = self.shared.style.preview_width,
                 .height = self.shared.style.color_preview_height,
             };
         }
@@ -435,8 +436,8 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return .{
-                .width = self.shared.style.width,
-                .height = @intCast(@divTrunc(self.shared.style.width * hexagon_width_ratio[0], hexagon_width_ratio[1]) + self.shared.style.drag_style.size.height + self.shared.style.item_pad),
+                .width = self.shared.style.popup_width,
+                .height = @intCast(@divTrunc(self.shared.style.popup_width * hexagon_width_ratio[0], hexagon_width_ratio[1]) + self.shared.style.drag_style.size.height + self.shared.style.item_pad),
             };
         }
 
