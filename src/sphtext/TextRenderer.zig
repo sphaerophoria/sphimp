@@ -167,6 +167,8 @@ const LayoutHelper = struct {
     fn advanceLine(self: *LayoutHelper) void {
         self.funit_cursor_y -= self.line_height;
         self.funit_cursor_x = 0;
+        // FIXME: This feels wrong
+        self.rollback_data.start_x = 0;
     }
 
     fn updateRollbackData(self: *LayoutHelper, c: u8) void {
@@ -182,6 +184,7 @@ const LayoutHelper = struct {
         self.rollback_data.text_idx = self.text_idx;
         self.rollback_data.glyphs_len = self.glyphs.items.len;
         self.rollback_data.bounds = self.bounds;
+        self.rollback_data.start_x = self.funit_cursor_x;
     }
 
     fn calcCharBounds(self: *LayoutHelper, left_side_bearing: i16, c: u8) ?LayoutBox {
