@@ -30,11 +30,10 @@ pub fn PopupLayer(comptime ActionType: type) type {
                     .right = left + item_size.width,
                     .bottom = top + item_size.height,
                 };
-
             }
         };
 
-        const widget_vtable = Widget(ActionType).VTable {
+        const widget_vtable = Widget(ActionType).VTable{
             .deinit = Self.widgetDeinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -51,9 +50,9 @@ pub fn PopupLayer(comptime ActionType: type) type {
             };
         }
 
-        pub fn widgetDeinit(_: ?*anyopaque, _: Allocator) void {
-            // Do nothing because this layer is expected to be longer lived
-            // than whatever layout it is fed to
+        pub fn widgetDeinit(ctx: ?*anyopaque, _: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.reset();
         }
 
         pub fn reset(self: *Self) void {
@@ -102,6 +101,9 @@ pub fn PopupLayer(comptime ActionType: type) type {
         pub fn update(ctx: ?*anyopaque, container_size: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.container_size = container_size;
+            if (self.inner) |i| {
+                try i.widget.update(container_size);
+            }
         }
 
         pub fn render(ctx: ?*anyopaque, layer_bounds: PixelBBox, window_bounds: PixelBBox) void {

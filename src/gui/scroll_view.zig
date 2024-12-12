@@ -11,6 +11,7 @@ const InputState = gui.InputState;
 pub fn ScrollView(comptime ActionType: type) type {
     return struct {
         layout: Widget(ActionType),
+        size: PixelSize,
 
         scrollbar_present: bool = false,
         scroll_offs: i32 = 0,
@@ -21,21 +22,55 @@ pub fn ScrollView(comptime ActionType: type) type {
 
         const Self = @This();
 
-        pub fn init(layout: Widget(ActionType), scrollbar_style: *const gui.scrollbar.Style, squircle_renderer: *const SquircleRenderer) Self {
-            return .{
+        const widget_vtable = Widget(ActionType).VTable{
+            .deinit = Self.widgetDeinit,
+            .render = Self.render,
+            .getSize = Self.getSize,
+            .update = Self.update,
+            .setInputState = Self.setInputState,
+        };
+
+        pub fn init(
+            alloc: Allocator,
+            layout: Widget(ActionType),
+            scrollbar_style: *const gui.scrollbar.Style,
+            squircle_renderer: *const SquircleRenderer,
+        ) !Widget(ActionType) {
+            const view = try alloc.create(Self);
+            view.* = .{
                 .layout = layout,
                 .scrollbar = .{
                     .renderer = squircle_renderer,
                     .style = scrollbar_style,
                 },
+                .size = .{
+                    .width = 0,
+                    .height = 0,
+                },
+            };
+            return .{
+                .ctx = view,
+                .vtable = &widget_vtable,
             };
         }
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
             self.layout.deinit(alloc);
+            alloc.destroy(self);
         }
 
-        pub fn update(self: *Self, window_size: PixelSize) !void {
+        fn widgetDeinit(ctx: ?*anyopaque, alloc: Allocator) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.deinit(alloc);
+        }
+
+        fn getSize(ctx: ?*anyopaque) PixelSize {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.size;
+        }
+
+        fn update(ctx: ?*anyopaque, window_size: PixelSize) !void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
             // We cannot know if the layout requires a scrollbar without
             // actually executing a layout. Try layout with the current scroll
             // state, and re-layout if the state is wrong
@@ -63,6 +98,8 @@ pub fn ScrollView(comptime ActionType: type) type {
                 break;
             }
 
+            self.size = window_size;
+
             self.scrollbar.bar_ratio =
                 @as(f32, @floatFromInt(window_size.height)) /
                 @as(f32, @floatFromInt(self.contentHeight()));
@@ -72,7 +109,8 @@ pub fn ScrollView(comptime ActionType: type) type {
                 @as(f32, @floatFromInt(self.contentHeight()));
         }
 
-        pub fn dispatchInput(self: *Self, input_state: InputState, bounds: PixelBBox) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+            const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.scrollbar.handleInput(
                 input_state,
                 scrollAreaBounds(self.scrollbar, bounds),
@@ -89,10 +127,11 @@ pub fn ScrollView(comptime ActionType: type) type {
                 @max(self.contentHeight() - bounds.calcHeight(), 0),
             );
 
-            return self.layout.setInputState(self.layoutBounds(bounds), input_state).action;
+            return self.layout.setInputState(self.layoutBounds(bounds), input_state);
         }
 
-        pub fn render(self: *Self, bounds: PixelBBox, window_bounds: PixelBBox) void {
+        fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
             self.layout.render(self.layoutBounds(bounds), window_bounds);
 
             const window_width = window_bounds.calcWidth();

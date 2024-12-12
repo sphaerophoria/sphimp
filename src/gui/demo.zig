@@ -21,7 +21,6 @@ const PixelSize = gui.PixelSize;
 const WindowAction = gui.WindowAction;
 const Color = gui.Color;
 const Layout = gui.layout.Layout;
-const LayoutStyle = gui.layout.LayoutStyle;
 const ScrollView = gui.scroll_view.ScrollView;
 
 const c = @cImport({
@@ -303,7 +302,7 @@ const AppLayoutGenerator = struct {
     overlay: *gui.popup_layer.PopupLayer(UiAction),
     layout_item_pad: u31,
 
-    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !ScrollView(UiAction) {
+    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Widget(UiAction) {
         var layout = try Layout(UiAction).init(alloc, self.layout_item_pad);
         errdefer layout.deinit(alloc);
 
@@ -445,17 +444,17 @@ const AppLayoutGenerator = struct {
             try layout.pushOrDeinitWidget(alloc, label);
         }
 
-        return ScrollView(UiAction).init(layout.asWidget(), self.scroll_style, self.squircle_renderer);
+        return try ScrollView(UiAction).init(alloc, layout.asWidget(), self.scroll_style, self.squircle_renderer);
     }
 };
 
-fn getInputAction(layout: *ScrollView(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
+fn getInputAction(layout: Widget(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
     if (overlay.getSize().width != 0) {
         const input_response = overlay.setInputState(layout_bounds, input_state);
         return input_response.action;
     }
 
-    return layout.dispatchInput(input_state, layout_bounds);
+    return layout.setInputState(layout_bounds, input_state).action;
 }
 
 pub fn main() !void {
@@ -482,6 +481,7 @@ pub fn main() !void {
     defer app.deinit(alloc);
 
     var input_state = InputState{};
+    defer input_state.deinit(alloc);
 
     const font_size = 20.0;
     var text_renderer = try TextRenderer.init(alloc, font_size);
@@ -566,10 +566,14 @@ pub fn main() !void {
         .height = @intFromFloat(unit * 1.15),
     } } };
 
-    var overlay = gui.popup_layer.PopupLayer(UiAction){};
-    defer overlay.reset();
+    var root_stack = try gui.stack.Stack(UiAction).init(alloc);
+    defer root_stack.deinit(alloc);
 
-    const overlay_widget = overlay.asWidget();
+    var overlay = gui.popup_layer.PopupLayer(UiAction){};
+    // FIXME: Leak if it's pushed into the root stack too late
+
+    const root_stack_widget = root_stack.toWidget();
+
     const layout_generator = AppLayoutGenerator{
         .shared_label_state = &shared_label_state,
         .drag_style = &drag_style,
@@ -582,11 +586,12 @@ pub fn main() !void {
         .shared_textbox_state = &textbox_state,
     };
 
-    var layout = try layout_generator.generateLayoutForApp(alloc, .{
+    const layout = try layout_generator.generateLayoutForApp(alloc, .{
         .width = window_width,
         .height = window_height,
     }, &app);
-    defer layout.deinit(alloc);
+    try root_stack.pushWidgetOrDeinit(alloc, layout, .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
+    try root_stack.pushWidgetOrDeinit(alloc, overlay.asWidget(), .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
 
     while (!glfw.closed()) {
         const width, const height = glfw.getWindowSize();
@@ -607,16 +612,15 @@ pub fn main() !void {
             .height = window_bounds.calcHeight(),
         };
 
-        try overlay_widget.update(window_size);
-        try layout.update(window_size);
+        try root_stack_widget.update(window_size);
 
         input_state.startFrame();
         while (glfw.queue.readItem()) |action| {
             try input_state.pushInput(alloc, action);
         }
 
-        const action_opt = getInputAction(&layout, overlay_widget, input_state, window_bounds);
-        if (action_opt) |action| {
+        const input_response = root_stack_widget.setInputState(window_bounds, input_state);
+        if (input_response.action) |action| {
             switch (action) {
                 .change_button_state => |idx| {
                     app.button_state[idx] = !app.button_state[idx];
@@ -659,9 +663,7 @@ pub fn main() !void {
             }
         }
 
-        layout.render(window_bounds, window_bounds);
-
-        overlay_widget.render(window_bounds, window_bounds);
+        root_stack_widget.render(window_bounds, window_bounds);
 
         glfw.swapBuffers();
     }

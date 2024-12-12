@@ -40,6 +40,10 @@ pub const InputState = struct {
     frame_scroll: f32 = 0,
     frame_keys: std.ArrayListUnmanaged(KeyEvent) = .{},
 
+    pub fn deinit(self: *InputState, alloc: Allocator) void {
+        self.frame_keys.deinit(alloc);
+    }
+
     pub fn startFrame(self: *InputState) void {
         if (self.mouse_released) {
             self.mouse_down_location = null;

@@ -61,7 +61,7 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             );
             const rect_size = self.shared.style.size;
             const label_size = self.label.getSize();
-            const y_offs = @divTrunc(rect_size.height - label_size.height, 2);
+            const y_offs = @divTrunc(rect_size.height -| label_size.height, 2);
             const x_offs = self.shared.style.label_pad;
             const left = widget_bounds.left + x_offs;
             const top = widget_bounds.top + y_offs;
