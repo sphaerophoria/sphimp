@@ -7,6 +7,7 @@ pub const drag_float = @import("drag_float.zig");
 pub const button = @import("button.zig");
 pub const layout = @import("layout.zig");
 pub const scrollbar = @import("scrollbar.zig");
+pub const scroll_view = @import("scroll_view.zig");
 pub const color_picker = @import("color_picker.zig");
 pub const popup_layer = @import("popup_layer.zig");
 pub const stack = @import("stack.zig");
@@ -17,9 +18,7 @@ test {
     std.testing.refAllDeclsRecursive(@This());
 }
 
-pub const KeyEvent = struct {
-     key: u8, ctrl: bool
-};
+pub const KeyEvent = struct { key: u8, ctrl: bool };
 
 pub const WindowAction = union(enum) {
     key_down: KeyEvent,
@@ -138,7 +137,7 @@ pub fn Widget(comptime ActionType: type) type {
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
             setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) = null,
-            setFocused: ?*const fn(ctx: ?*anyopaque, focused: bool) void = null,
+            setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
         };
 
         const Self = @This();

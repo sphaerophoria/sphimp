@@ -11,16 +11,9 @@ const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 const SquircleRenderer = @import("SquircleRenderer.zig");
 
-//pub fn Textbox(comptime ActionType: type) type {
-//    return struct {
-//
-//
-//
-//    };
-//}
-//
 pub const TextboxStyle = struct {
     background_color: gui.Color,
+    // FIXME: remove
     focus_color: gui.Color,
     size: gui.PixelSize,
     label_pad: u31,
@@ -41,7 +34,7 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable {
+        const widget_vtable = Widget(ActionType).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -60,9 +53,8 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             const transform = util.widgetToClipTransform(widget_bounds, window_bounds);
-            const rect_color = if (self.focused) self.shared.style.focus_color else self.shared.style.background_color;
             self.shared.squircle_renderer.render(
-                rect_color,
+                self.shared.style.background_color,
                 0.0,
                 widget_bounds,
                 transform,
@@ -73,14 +65,34 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             const x_offs = self.shared.style.label_pad;
             const left = widget_bounds.left + x_offs;
             const top = widget_bounds.top + y_offs;
-            const label_bounds = PixelBBox {
+            const label_bounds = PixelBBox{
                 .left = left,
                 .top = top,
                 .right = left + label_size.width,
                 .bottom = top + label_size.height,
-
             };
             self.label.render(label_bounds, window_bounds);
+
+            if (self.focused) {
+                const cursor_left = label_bounds.right + self.shared.style.label_pad;
+                // FIXME: style
+                const cursor_width = 2;
+                const cursor_bounds = PixelBBox{
+                    .left = cursor_left,
+                    .right = cursor_left + cursor_width,
+                    .top = widget_bounds.top + 2,
+                    .bottom = widget_bounds.bottom - 2,
+                };
+                const cursor_transform = util.widgetToClipTransform(cursor_bounds, window_bounds);
+                //FIXME: style
+                const cursor_color = gui.Color{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 };
+                self.shared.squircle_renderer.render(
+                    cursor_color,
+                    0.0,
+                    cursor_bounds,
+                    cursor_transform,
+                );
+            }
         }
 
         fn getSize(ctx: ?*anyopaque) PixelSize {
@@ -88,7 +100,7 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             return self.shared.style.size;
         }
 
-        fn update(ctx: ?*anyopaque, available_size: PixelSize)!void {
+        fn update(ctx: ?*anyopaque, available_size: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return self.label.update(available_size);
         }
@@ -98,7 +110,7 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             self.focused = focused;
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType){
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             var wants_focus = false;
 

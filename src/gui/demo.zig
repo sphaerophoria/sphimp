@@ -22,7 +22,7 @@ const WindowAction = gui.WindowAction;
 const Color = gui.Color;
 const Layout = gui.layout.Layout;
 const LayoutStyle = gui.layout.LayoutStyle;
-const ScrollView = gui.layout.ScrollView;
+const ScrollView = gui.scroll_view.ScrollView;
 
 const c = @cImport({
     @cInclude("GLFW/glfw3.h");
@@ -45,13 +45,15 @@ fn keyCallbackGlfw(window: ?*glfwb.GLFWwindow, key: c_int, _: c_int, action: c_i
 
     const glfw: *Glfw = @ptrCast(@alignCast(glfwb.glfwGetWindowUserPointer(window)));
 
-    if (key < glfwb.GLFW_KEY_A or key > glfwb.GLFW_KEY_Z) return;
-
-    const key_char: u8 = @intCast(key - glfwb.GLFW_KEY_A + 'a');
+    const key_char = switch (key) {
+        glfwb.GLFW_KEY_A...glfwb.GLFW_KEY_Z => key - glfwb.GLFW_KEY_A + 'a',
+        glfwb.GLFW_KEY_SPACE => ' ',
+        else => return,
+    };
 
     glfw.queue.writeItem(.{
         .key_down = .{
-            .key = key_char,
+            .key = @intCast(key_char),
             .ctrl = (modifiers & glfwb.GLFW_MOD_CONTROL) != 0,
         },
     }) catch |e| {
@@ -217,9 +219,7 @@ const MakeAppendLetter = struct {
                 .text = events,
             },
         };
-
     }
-
 };
 
 const GlobalStyle = struct {
@@ -304,9 +304,7 @@ const AppLayoutGenerator = struct {
     layout_item_pad: u31,
 
     fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !ScrollView(UiAction) {
-        var layout = Layout(UiAction){
-            .item_pad = self.layout_item_pad,
-        };
+        var layout = try Layout(UiAction).init(alloc, self.layout_item_pad);
         errdefer layout.deinit(alloc);
 
         {
@@ -330,15 +328,24 @@ const AppLayoutGenerator = struct {
             try layout.pushOrDeinitWidget(alloc, button);
         }
 
+        const text_input_label = try gui.label.makeLabel(
+            UiAction,
+            alloc,
+            "text input",
+            std.math.maxInt(u31),
+            self.shared_label_state,
+        );
+        try layout.pushOrDeinitWidget(alloc, text_input_label);
+
         for (0..app.text_input.len) |idx| {
-            const text_input_label = try gui.textbox.makeTextbox(
+            const text_input = try gui.textbox.makeTextbox(
                 UiAction,
                 alloc,
-                ArrayListLabelData {.al = &app.text_input[idx] },
-                MakeAppendLetter { .idx = idx },
+                ArrayListLabelData{ .al = &app.text_input[idx] },
+                MakeAppendLetter{ .idx = idx },
                 self.shared_textbox_state,
             );
-            try layout.pushOrDeinitWidget(alloc, text_input_label);
+            try layout.pushOrDeinitWidget(alloc, text_input);
         }
 
         {
@@ -438,12 +445,11 @@ const AppLayoutGenerator = struct {
             try layout.pushOrDeinitWidget(alloc, label);
         }
 
-        return ScrollView(UiAction).init(layout, self.scroll_style, self.squircle_renderer);
+        return ScrollView(UiAction).init(layout.asWidget(), self.scroll_style, self.squircle_renderer);
     }
 };
 
 fn getInputAction(layout: *ScrollView(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
-
     if (overlay.getSize().width != 0) {
         const input_response = overlay.setInputState(layout_bounds, input_state);
         return input_response.action;
@@ -474,14 +480,10 @@ pub fn main() !void {
 
     var app = App{};
     defer app.deinit(alloc);
-    for (&app.text_input, 0..) |*input, idx| {
-        try input.appendSlice(alloc, "hello world");
-        try input.append(alloc, @intCast('0' + idx));
-    }
 
     var input_state = InputState{};
 
-    const font_size = 11.0;
+    const font_size = 20.0;
     var text_renderer = try TextRenderer.init(alloc, font_size);
     defer text_renderer.deinit(alloc);
 
@@ -559,19 +561,10 @@ pub fn main() !void {
     );
     defer color_picker_state.deinit(alloc);
 
-    var textbox_state = gui.textbox.SharedTextboxState {
-        .label_state = &shared_label_state,
-        .squircle_renderer = &squircle_renderer,
-        .style = .{
-            .label_pad = widget_text_padding,
-            .background_color = GlobalStyle.default_color,
-            .focus_color = GlobalStyle.hover_color,
-            .size = .{
-                .width = widget_width,
-                .height = @intFromFloat(unit * 1.15),
-            }
-        }
-    };
+    var textbox_state = gui.textbox.SharedTextboxState{ .label_state = &shared_label_state, .squircle_renderer = &squircle_renderer, .style = .{ .label_pad = widget_text_padding, .background_color = GlobalStyle.default_color, .focus_color = GlobalStyle.hover_color, .size = .{
+        .width = widget_width,
+        .height = @intFromFloat(unit * 1.15),
+    } } };
 
     var overlay = gui.popup_layer.PopupLayer(UiAction){};
     defer overlay.reset();

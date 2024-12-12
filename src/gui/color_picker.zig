@@ -121,7 +121,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
         }
 
         fn generateOverlayWidget(self: Self) !Widget(ActionType) {
-            var layout = Layout(ActionType){ .item_pad = self.shared.style.item_pad };
+            const layout = try Layout(ActionType).init(self.alloc, self.shared.style.item_pad);
             errdefer layout.deinit(self.alloc);
 
             const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.label_state);
@@ -160,7 +160,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             const blue_drag = try widget_gen.makeRGBDrag("b");
             try layout.pushOrDeinitWidget(self.alloc, blue_drag);
 
-            return try layout.toWidget(self.alloc);
+            return layout.asWidget();
         }
 
         const OverlayWidgets = struct {
@@ -244,7 +244,6 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             }
 
             return ret;
-
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
