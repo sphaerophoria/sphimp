@@ -118,7 +118,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret: ?ActionType = null;
@@ -140,7 +140,10 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
                 self.state = .default;
             }
 
-            return ret;
+            return .{
+                .wants_focus = false,
+                .action = ret,
+            };
         }
     };
 }

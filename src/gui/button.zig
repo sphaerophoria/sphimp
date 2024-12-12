@@ -123,7 +123,7 @@ pub fn Button(comptime ActionType: type) type {
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret: ?ActionType = null;
@@ -143,7 +143,10 @@ pub fn Button(comptime ActionType: type) type {
                 self.state = .none;
             }
 
-            return ret;
+            return .{
+                .wants_focus = false,
+                .action = ret,
+            };
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window: PixelBBox) void {

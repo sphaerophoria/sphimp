@@ -17,8 +17,12 @@ test {
     std.testing.refAllDeclsRecursive(@This());
 }
 
+pub const KeyEvent = struct {
+     key: u8, ctrl: bool
+};
+
 pub const WindowAction = union(enum) {
-    key_down: struct { key: c_int, ctrl: bool },
+    key_down: KeyEvent,
     mouse_move: MousePos,
     mouse_down,
     mouse_up,
@@ -35,16 +39,18 @@ pub const InputState = struct {
     mouse_down_location: ?MousePos = null,
     mouse_released: bool = false,
     frame_scroll: f32 = 0,
+    frame_keys: std.ArrayListUnmanaged(KeyEvent) = .{},
 
     pub fn startFrame(self: *InputState) void {
         if (self.mouse_released) {
             self.mouse_down_location = null;
             self.mouse_released = false;
         }
+        self.frame_keys.clearRetainingCapacity();
         self.frame_scroll = 0;
     }
 
-    pub fn pushInput(self: *InputState, action: WindowAction) void {
+    pub fn pushInput(self: *InputState, alloc: Allocator, action: WindowAction) !void {
         switch (action) {
             .mouse_move => |pos| {
                 self.mouse_pos = pos;
@@ -57,6 +63,9 @@ pub const InputState = struct {
             },
             .scroll => |amount| {
                 self.frame_scroll += amount;
+            },
+            .key_down => |ev| {
+                try self.frame_keys.append(alloc, ev);
             },
             else => {},
         }
@@ -114,6 +123,13 @@ pub const PixelBBox = struct {
     }
 };
 
+pub fn InputResponse(comptime ActionType: type) type {
+    return struct {
+        wants_focus: bool,
+        action: ?ActionType,
+    };
+}
+
 pub fn Widget(comptime ActionType: type) type {
     return struct {
         pub const VTable = struct {
@@ -121,7 +137,8 @@ pub fn Widget(comptime ActionType: type) type {
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
-            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType = null,
+            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) = null,
+            setFocused: ?*const fn(ctx: ?*anyopaque, focused: bool) void = null,
         };
 
         const Self = @This();
@@ -142,15 +159,25 @@ pub fn Widget(comptime ActionType: type) type {
                 try u(self.ctx, available_size);
             }
         }
+
         pub fn render(self: Self, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {
             self.vtable.render(self.ctx, widget_bounds, window_bounds);
         }
 
-        pub fn setInputState(self: Self, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
+        pub fn setInputState(self: Self, widget_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) {
             if (self.vtable.setInputState) |setState| {
                 return setState(self.ctx, widget_bounds, input_state);
             }
-            return null;
+            return .{
+                .wants_focus = false,
+                .action = null,
+            };
+        }
+
+        pub fn setFocused(self: Self, focused: bool) void {
+            if (self.vtable.setFocused) |f| {
+                f(self.ctx, focused);
+            }
         }
     };
 }

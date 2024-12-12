@@ -97,10 +97,14 @@ pub fn Stack(comptime ActionType: type) type {
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var ret: ?ActionType  = null;
+            var ret = gui.InputResponse(ActionType) {
+                .wants_focus = false,
+                .action = null,
+
+            };
 
             var i: usize = self.items.items.len;
             while (i > 0) {
@@ -109,9 +113,10 @@ pub fn Stack(comptime ActionType: type) type {
                 const item = self.items.items[i];
                 const item_bounds = itemBounds(stack_bounds, item.layout, item.widget);
 
-                if (item.widget.setInputState(item_bounds, input_state)) |action| {
-                    ret = action;
-                }
+                const input_response = item.widget.setInputState(item_bounds, input_state);
+                // FIXME: unusre this is right
+                ret.wants_focus = input_response.wants_focus;
+                ret.action = input_response.action;
 
                 if (util.itemConsumesInput(item_bounds, input_state)) {
                     break;

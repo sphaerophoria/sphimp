@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const gui = @import("gui.zig");
+const util = @import("util.zig");
 const Widget = gui.Widget;
 const Rect = gui.rect.Rect;
 const Stack = gui.stack.Stack;
@@ -20,6 +21,7 @@ const SquircleRenderer = @import("SquircleRenderer.zig");
 //
 pub const TextboxStyle = struct {
     background_color: gui.Color,
+    focus_color: gui.Color,
     size: gui.PixelSize,
     label_pad: u31,
 };
@@ -32,12 +34,10 @@ pub const SharedTextboxState = struct {
 
 fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
     return struct {
-        stack: Widget(ActionType),
+        label: Widget(ActionType),
+        shared: *const SharedTextboxState,
         text_action: TextAction,
-        mouse_state: enum {
-            not_clicked,
-            clicked,
-        } = .not_clicked,
+        focused: bool = false,
 
         const Self = @This();
 
@@ -47,77 +47,93 @@ fn Textbox(comptime ActionType: type, comptime TextAction: type) type {
             .getSize = Self.getSize,
             .update = Self.update,
             .setInputState = Self.setInputState,
+            .setFocused = Self.setFocused,
         };
 
         fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.stack.deinit(alloc);
+            self.label.deinit(alloc);
             alloc.destroy(self);
         }
 
         fn render(ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.stack.render(widget_bounds, window_bounds);
+
+            const transform = util.widgetToClipTransform(widget_bounds, window_bounds);
+            const rect_color = if (self.focused) self.shared.style.focus_color else self.shared.style.background_color;
+            self.shared.squircle_renderer.render(
+                rect_color,
+                0.0,
+                widget_bounds,
+                transform,
+            );
+            const rect_size = self.shared.style.size;
+            const label_size = self.label.getSize();
+            const y_offs = @divTrunc(rect_size.height - label_size.height, 2);
+            const x_offs = self.shared.style.label_pad;
+            const left = widget_bounds.left + x_offs;
+            const top = widget_bounds.top + y_offs;
+            const label_bounds = PixelBBox {
+                .left = left,
+                .top = top,
+                .right = left + label_size.width,
+                .bottom = top + label_size.height,
+
+            };
+            self.label.render(label_bounds, window_bounds);
         }
 
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            return self.stack.getSize();
+            return self.shared.style.size;
         }
 
         fn update(ctx: ?*anyopaque, available_size: PixelSize)!void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            return self.stack.update(available_size);
+            return self.label.update(available_size);
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType{
+        fn setFocused(ctx: ?*anyopaque, focused: bool) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            self.focused = focused;
+        }
 
-            var ret: ?ActionType = null;
-            switch (self.mouse_state) {
-                .not_clicked => {
-                    if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                        ret = self.text_action.generate('a');
-                        self.mouse_state = .clicked;
-                    }
-                },
-                .clicked => {
-                    if (input_state.mouse_released) {
-                        self.mouse_state = .not_clicked;
-                    }
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType){
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            var wants_focus = false;
 
-                },
+            if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                wants_focus = true;
             }
-            return ret;
+
+            if (input_state.mouse_down_location) |loc| {
+                if (self.focused and !widget_bounds.containsMousePos(loc)) {
+                    self.focused = false;
+                }
+            }
+
+            var action: ?ActionType = null;
+            if (self.focused) {
+                action = self.text_action.generate(input_state.frame_keys.items);
+            }
+
+            return .{
+                .wants_focus = wants_focus,
+                .action = action,
+            };
         }
     };
 }
 
 pub fn makeTextbox(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, text_action: anytype, shared: *const SharedTextboxState) !Widget(ActionType) {
-    const stack = try Stack(ActionType).init(alloc);
-    errdefer stack.deinit(alloc);
-
-    const rect = try Rect(ActionType).init(
-        alloc,
-        shared.style.size,
-        shared.style.background_color,
-        shared.squircle_renderer,
-    );
-    try stack.pushWidgetOrDeinit(alloc, rect, .{ .offset = .{ .x_offs = 0, .y_offs = 0 }});
-
     const label = try gui.label.makeLabel(ActionType, alloc, text_retreiver, std.math.maxInt(u31), shared.label_state);
-    const label_size = label.getSize();
-
-    const rect_size = rect.getSize();
-    const y_offs = @divTrunc(rect_size.height - label_size.height, 2);
-    const x_offs = shared.style.label_pad;
-    try stack.pushWidgetOrDeinit(alloc, label, .{ .offset = .{.x_offs = x_offs, .y_offs = y_offs} });
 
     const TB = Textbox(ActionType, @TypeOf(text_action));
     const box = try alloc.create(TB);
     box.* = .{
-        .stack = stack.toWidget(),
+        .label = label,
         .text_action = text_action,
+        .shared = shared,
     };
 
     return .{

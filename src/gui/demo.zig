@@ -44,9 +44,14 @@ fn keyCallbackGlfw(window: ?*glfwb.GLFWwindow, key: c_int, _: c_int, action: c_i
     }
 
     const glfw: *Glfw = @ptrCast(@alignCast(glfwb.glfwGetWindowUserPointer(window)));
+
+    if (key < glfwb.GLFW_KEY_A or key > glfwb.GLFW_KEY_Z) return;
+
+    const key_char: u8 = @intCast(key - glfwb.GLFW_KEY_A + 'a');
+
     glfw.queue.writeItem(.{
         .key_down = .{
-            .key = key,
+            .key = key_char,
             .ctrl = (modifiers & glfwb.GLFW_MOD_CONTROL) != 0,
         },
     }) catch |e| {
@@ -190,7 +195,7 @@ const UiAction = union(enum) {
     change_sample_color: Color,
     append_letter: struct {
         idx: usize,
-        char: u8,
+        text: []const gui.KeyEvent,
     },
 
     fn makeChangeHighlightColor(color: Color) UiAction {
@@ -205,11 +210,11 @@ const UiAction = union(enum) {
 const MakeAppendLetter = struct {
     idx: usize,
 
-    pub fn generate(self: MakeAppendLetter, char: u8) UiAction {
+    pub fn generate(self: MakeAppendLetter, events: []const gui.KeyEvent) UiAction {
         return .{
             .append_letter = .{
                 .idx = self.idx,
-                .char = char,
+                .text = events,
             },
         };
 
@@ -440,7 +445,8 @@ const AppLayoutGenerator = struct {
 fn getInputAction(layout: *ScrollView(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
 
     if (overlay.getSize().width != 0) {
-        return overlay.setInputState(layout_bounds, input_state);
+        const input_response = overlay.setInputState(layout_bounds, input_state);
+        return input_response.action;
     }
 
     return layout.dispatchInput(input_state, layout_bounds);
@@ -559,6 +565,7 @@ pub fn main() !void {
         .style = .{
             .label_pad = widget_text_padding,
             .background_color = GlobalStyle.default_color,
+            .focus_color = GlobalStyle.hover_color,
             .size = .{
                 .width = widget_width,
                 .height = @intFromFloat(unit * 1.15),
@@ -612,17 +619,7 @@ pub fn main() !void {
 
         input_state.startFrame();
         while (glfw.queue.readItem()) |action| {
-            switch (action) {
-                .key_down => |k| {
-                    if (k.key >= glfwb.GLFW_KEY_A and k.key <= glfwb.GLFW_KEY_Z) {
-                        const char: u8 = @intCast('a' + k.key - glfwb.GLFW_KEY_A);
-                        std.debug.print("got char: {c}\n", .{char});
-                        try app.text_input[0].append(alloc, char);
-                    }
-                },
-                else => {},
-            }
-            input_state.pushInput(action);
+            try input_state.pushInput(alloc, action);
         }
 
         const action_opt = getInputAction(&layout, overlay_widget, input_state, window_bounds);
@@ -662,7 +659,9 @@ pub fn main() !void {
                     app.sample_color = color;
                 },
                 .append_letter => |v| {
-                    try app.text_input[v.idx].append(alloc, v.char);
+                    for (v.text) |ev| {
+                        try app.text_input[v.idx].append(alloc, ev.key);
+                    }
                 },
             }
         }

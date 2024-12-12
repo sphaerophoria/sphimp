@@ -233,13 +233,18 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             self.overlay.set(self.alloc, stack, overlay_bounds.left, overlay_bounds.top);
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            const ret = gui.InputResponse(ActionType){
+                .wants_focus = false,
+                .action = null,
+            };
             if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
-                self.spawnOverlay(input_state.mouse_down_location.?) catch return null;
+                self.spawnOverlay(input_state.mouse_down_location.?) catch return ret;
             }
 
-            return null;
+            return ret;
+
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
@@ -419,7 +424,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             _ = self;
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *@This() = @ptrCast(@alignCast(ctx));
 
             const prev_color = getColor(&self.color_retriever);
@@ -429,7 +434,10 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
 
             if (split_bounds.hexagon.containsOptMousePos(input_state.mouse_down_location)) {
                 const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, split_bounds.hexagon);
-                return self.color_generator(new_color);
+                return .{
+                    .wants_focus = false,
+                    .action = generateAction(ActionType, &self.color_generator, new_color),
+                };
             }
 
             const lightness_input_bounds = split_bounds.lightness.merge(split_bounds.pointer);
@@ -457,10 +465,16 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                     color.b = new_lightness;
                 }
 
-                return generateAction(ActionType, &self.color_generator, color);
+                return .{
+                    .wants_focus = false,
+                    .action = generateAction(ActionType, &self.color_generator, color),
+                };
             }
 
-            return null;
+            return .{
+                .wants_focus = false,
+                .action = null,
+            };
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {

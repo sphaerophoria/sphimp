@@ -80,9 +80,12 @@ pub fn PopupLayer(comptime ActionType: type) type {
             }
         }
 
-        pub fn setInputState(ctx: ?*anyopaque, layer_bounds: PixelBBox, input_state: InputState) ?ActionType {
+        pub fn setInputState(ctx: ?*anyopaque, layer_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const data = if (self.inner) |*i| i else return null;
+            const data = if (self.inner) |*i| i else return .{
+                .wants_focus = false,
+                .action = null,
+            };
             const item_bounds = data.bounds(layer_bounds);
             const ret = data.widget.setInputState(item_bounds, input_state);
 

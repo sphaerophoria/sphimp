@@ -122,7 +122,7 @@ pub fn ScrollView(comptime ActionType: type) type {
                 @max(self.contentHeight() - bounds.calcHeight(), 0),
             );
 
-            return self.layout.dispatchInput(self.layoutBounds(bounds), input_state);
+            return self.layout.dispatchInput(self.layoutBounds(bounds), input_state).action;
         }
 
         pub fn render(self: *Self, bounds: PixelBBox, window_bounds: PixelBBox) void {
@@ -172,6 +172,7 @@ pub fn Layout(comptime ActionType: type) type {
         cursor: Cursor = .{},
         items: std.ArrayListUnmanaged(LayoutItem) = .{},
         item_pad: u31,
+        focused_id: ?usize = null,
         max_width: u31 = 0,
 
         const LayoutItem = struct {
@@ -228,7 +229,6 @@ pub fn Layout(comptime ActionType: type) type {
                 try item.widget.update(self.availableSize(container_size));
                 const widget_size = item.widget.getSize();
                 item.bounds = self.cursor.apply(widget_size, self.item_pad);
-
                 max_width = @max(max_width, widget_size.width);
             }
 
@@ -257,10 +257,13 @@ pub fn Layout(comptime ActionType: type) type {
             };
         }
 
-        pub fn dispatchInput(self: *Self, bounds: PixelBBox, input_state: InputState) ?ActionType {
-            var ret: ?ActionType = null;
+        pub fn dispatchInput(self: *Self, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+            var ret = gui.InputResponse(ActionType) {
+                .wants_focus = false,
+                .action = null,
+            };
 
-            for (self.items.items) |item| {
+            for (self.items.items, 0..) |item, idx| {
                 // FIXME: duplicated with render()
                 const child_bounds = PixelBBox{
                     .top = bounds.top + item.bounds.top,
@@ -268,14 +271,30 @@ pub fn Layout(comptime ActionType: type) type {
                     .left = bounds.left + item.bounds.left,
                     .right = bounds.left + item.bounds.right,
                 };
-                if (item.widget.setInputState(child_bounds, input_state)) |action| {
-                    ret = action;
+                const input_response = item.widget.setInputState(child_bounds, input_state);
+
+                if (input_response.wants_focus) {
+                    if (self.focused_id) |id| {
+                        self.items.items[id].widget.setFocused(false);
+                    }
+                    self.focused_id = idx;
+                    // FIXME: layout needs to check if it is focused as well
+                    // This should be self.focused && widget focus or something
+                    if (self.focused_id) |id| {
+                        self.items.items[id].widget.setFocused(true);
+                    }
+                    ret.wants_focus = true;
+                }
+
+                if (input_response.action) |action| {
+                    ret.action = action;
                 }
             }
+
             return ret;
         }
 
-        fn widgetSetInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) ?ActionType {
+        fn widgetSetInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return self.dispatchInput(bounds, input_state);
         }
