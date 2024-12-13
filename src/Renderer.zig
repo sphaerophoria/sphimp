@@ -128,7 +128,7 @@ pub const FrameRenderer = struct {
         return texture;
     }
 
-    pub fn renderObjectWithTransform(self: *FrameRenderer, object: Object, transform: Transform) !void {
+    fn renderObjectWithTransform(self: *FrameRenderer, object: Object, transform: Transform) !void {
         switch (object.data) {
             .composition => |c| {
                 const composition_object_dims = object.dims(self.objects);

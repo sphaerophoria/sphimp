@@ -823,9 +823,9 @@ pub fn main() !void {
         app.view_state.window_height = height;
 
         Imgui.startFrame();
-        //if (try Imgui.renderObjectList(&app.objects, app.input_state.selected_object)) |idx| {
-        //    app.setSelectedObject(idx);
-        //}
+        if (try Imgui.renderObjectList(&app.objects, app.input_state.selected_object)) |idx| {
+            app.setSelectedObject(idx);
+        }
 
         if (try imgui.renderObjectProperties(app.input_state.selected_object, &app.objects, app.shaders, app.brushes, app.fonts)) |action| {
             switch (action) {
@@ -932,8 +932,6 @@ pub fn main() !void {
                 .key_down => |key| {
                     if (key.key >= glfwb.GLFW_KEY_0 and key.key <= glfwb.GLFW_KEY_Z) {
                         try app.setKeyDown(@intCast(key.key), key.ctrl);
-                    } else if (key.key == glfwb.GLFW_KEY_GRAVE_ACCENT) {
-                        try app.setKeyDown('~', key.ctrl);
                     }
                 },
                 .mouse_move => |p| if (glfw_mouse) {

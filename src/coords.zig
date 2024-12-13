@@ -9,7 +9,7 @@ pub fn aspectRatioCorrectedFill(inner_w: usize, inner_h: usize, outer_w: usize, 
     );
 }
 
-pub fn aspectsToCorrectedTransform(inner_aspect: f32, outer_aspect: f32) Transform {
+fn aspectsToCorrectedTransform(inner_aspect: f32, outer_aspect: f32) Transform {
     if (outer_aspect > inner_aspect) {
         return Transform.scale(inner_aspect / outer_aspect, 1.0);
     } else {
