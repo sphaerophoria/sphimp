@@ -68,6 +68,14 @@ pub fn Layout(comptime ActionType: type) type {
             alloc.destroy(self);
         }
 
+        pub fn reset(self: *Self, alloc: Allocator) void {
+            for (self.items.items) |item| {
+                item.widget.deinit(alloc);
+            }
+            self.items.deinit(alloc);
+            self.items = .{};
+        }
+
         fn widgetDeinit(ctx: ?*anyopaque, alloc: Allocator) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.deinit(alloc);

@@ -6,8 +6,8 @@ const sphtext = @import("sphtext");
 const TextRenderer = sphtext.TextRenderer;
 const ttf_mod = sphtext.ttf;
 const sphmath = @import("sphmath");
-const gui = @import("gui.zig");
-const SquircleRenderer = @import("SquircleRenderer.zig");
+const gui = @import("sphui");
+const SquircleRenderer = gui.SquircleRenderer;
 const DragFloatStyle = gui.drag_float.DragFloatStyle;
 const SharedButtonState = gui.button.SharedButtonState;
 const ButtonStyle = gui.button.ButtonStyle;
@@ -176,8 +176,8 @@ const App = struct {
     button_state: [2]bool = .{ true, false },
     adjustable_float: [2]f32 = .{ 1.0, 1.0 },
     counter: i64 = 0,
-    hightlight_color: Color = GlobalStyle.default_color,
-    sample_color: Color = GlobalStyle.default_color,
+    hightlight_color: Color = gui.default_gui.GlobalStyle.default_color,
+    sample_color: Color = gui.default_gui.GlobalStyle.default_color,
     text_input: [5]std.ArrayListUnmanaged(u8) = .{.{}} ** 5,
     item_list: std.ArrayListUnmanaged([]const u8) = .{},
     selected_item: usize = 0,
@@ -259,31 +259,6 @@ const MakeInsertLetter = struct {
     }
 };
 
-const GlobalStyle = struct {
-    const default_color = Color{ .r = 0.38, .g = 0.35, .b = 0.44, .a = 1.0 };
-    const hover_color = hoverColor(default_color);
-    const active_color = activeColor(default_color);
-    const background_color = Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 };
-    const background_color2 = Color{ .r = 0.2, .g = 0.2, .b = 0.2, .a = 1.0 };
-
-    fn hoverColor(default: Color) Color {
-        return .{
-            .r = default.r * 3.0 / 2.0,
-            .g = default.g * 3.0 / 2.0,
-            .b = default.b * 3.0 / 2.0,
-            .a = default.a,
-        };
-    }
-
-    fn activeColor(default: Color) Color {
-        return .{
-            .r = default.r * 4.0 / 2.0,
-            .g = default.g * 4.0 / 2.0,
-            .b = default.b * 4.0 / 2.0,
-            .a = default.a,
-        };
-    }
-};
 
 const AppGetAdjustableFloat = struct {
     app: *App,
@@ -344,226 +319,147 @@ const RetrieveSelectableItems = struct {
     }
 };
 
-const AppLayoutGenerator = struct {
-    guitext_state: *const gui.gui_text.SharedState,
-    drag_style: *const DragFloatStyle,
-    shared_button_state: *const SharedButtonState,
-    squircle_renderer: *const SquircleRenderer,
-    scroll_style: *const gui.scrollbar.Style,
-    shared_color: *const gui.color_picker.SharedColorPickerState,
-    shared_textbox_state: *const gui.textbox.SharedTextboxState,
-    shared_selecatble_list_state: *const gui.selectable_list.SharedState,
-    overlay: *gui.popup_layer.PopupLayer(UiAction),
-    layout_item_pad: u31,
+fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_size: PixelSize, app: *App) !void {
+    gui_gen.main_layout.reset(gui_gen.alloc);
 
-    fn generateLayoutForApp(self: AppLayoutGenerator, alloc: Allocator, window_size: PixelSize, app: *App) !Widget(UiAction) {
-        var layout = try Layout(UiAction).init(alloc, self.layout_item_pad);
-        errdefer layout.deinit(alloc);
-
-        {
-            const label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                "Hello world",
-                layout.availableSize(window_size).width,
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, label);
-        }
-
-        for (0..app.button_state.len) |idx| {
-            const button = try Button(UiAction).init(
-                alloc,
-                AppButtonTextGenerator{ .app = app, .idx = idx },
-                self.shared_button_state,
-                .{ .change_button_state = idx },
-            );
-            try layout.pushOrDeinitWidget(alloc, button);
-        }
-
-        const text_input_label = try gui.label.makeLabel(
-            UiAction,
-            alloc,
-            "text input",
-            std.math.maxInt(u31),
-            self.guitext_state,
-        );
-        try layout.pushOrDeinitWidget(alloc, text_input_label);
-
-        for (0..app.text_input.len) |idx| {
-            const text_input = try gui.textbox.makeTextbox(
-                UiAction,
-                alloc,
-                ArrayListLabelData{ .al = &app.text_input[idx] },
-                MakeInsertLetter{ .input_idx = idx },
-                self.shared_textbox_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, text_input);
-        }
-
-        {
-            const add_label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                "New label",
-                std.math.maxInt(u31),
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, add_label);
-
-            const NewItemNameAdapter = struct {
-                app: *App,
-
-                pub fn getText(adap: @This()) []const u8 {
-                    return adap.app.new_item_name.items;
-                }
-            };
-            const text_input = try gui.textbox.makeTextbox(
-                UiAction,
-                alloc,
-                NewItemNameAdapter{ .app = app },
-                &UiAction.makeEditNewItemName,
-                self.shared_textbox_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, text_input);
-
-            const button = try gui.button.makeButton(
-                UiAction,
-                alloc,
-                "add",
-                self.shared_button_state,
-                .commit_new_item,
-            );
-            try layout.pushOrDeinitWidget(alloc, button);
-
-            const remove_button = try gui.button.makeButton(
-                UiAction,
-                alloc,
-                "remove",
-                self.shared_button_state,
-                .remove_selected_item,
-            );
-            try layout.pushOrDeinitWidget(alloc, remove_button);
-
-            const label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                "Select an item",
-                std.math.maxInt(u31),
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, label);
-
-            const selectable_list = try gui.selectable_list.selectableList(
-                UiAction,
-                alloc,
-                RetrieveSelectableItems{ .app = app },
-                &UiAction.makeSelectItem,
-                self.shared_selecatble_list_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, selectable_list);
-        }
-
-        {
-            const color_label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                "Highlight color",
-                std.math.maxInt(u31),
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, color_label);
-        }
-
-        {
-            const color_popup = try gui.color_picker.makeColorPicker(
-                UiAction,
-                alloc,
-                &app.hightlight_color,
-                &UiAction.makeChangeHighlightColor,
-                self.shared_color,
-                self.overlay,
-            );
-            try layout.pushOrDeinitWidget(alloc, color_popup);
-        }
-
-        {
-            const color_popup = try gui.color_picker.makeColorPicker(
-                UiAction,
-                alloc,
-                &app.sample_color,
-                &UiAction.makeChangeSampleColor,
-                self.shared_color,
-                self.overlay,
-            );
-            try layout.pushOrDeinitWidget(alloc, color_popup);
-        }
-
-        for (0..app.adjustable_float.len) |i| {
-            const label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                "float value",
-                layout.availableSize(window_size).width,
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, label);
-
-            const drag_float = try gui.drag_float.makeWidget(
-                UiAction,
-                alloc,
-                AppGetAdjustableFloat{ .app = app, .idx = i },
-                AppDragGenerator{ .idx = i },
-                self.drag_style,
-                self.guitext_state,
-                self.squircle_renderer,
-            );
-            try layout.pushOrDeinitWidget(alloc, drag_float);
-        }
-
-        {
-            const label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                CounterText{ .app = app },
-                layout.availableSize(window_size).width,
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, label);
-
-            const dec = try gui.button.makeButton(
-                UiAction,
-                alloc,
-                "decrement",
-                self.shared_button_state,
-                .decrement_counter,
-            );
-            try layout.pushOrDeinitWidget(alloc, dec);
-
-            const inc = try gui.button.makeButton(
-                UiAction,
-                alloc,
-                "increment",
-                self.shared_button_state,
-                .increment_counter,
-            );
-            try layout.pushOrDeinitWidget(alloc, inc);
-        }
-
-        {
-            const label = try gui.label.makeLabel(
-                UiAction,
-                alloc,
-                @embedFile("res/lorem_ipsum.txt"),
-                layout.availableSize(window_size).width,
-                self.guitext_state,
-            );
-            try layout.pushOrDeinitWidget(alloc, label);
-        }
-
-        return try ScrollView(UiAction).init(alloc, layout.asWidget(), self.scroll_style, self.squircle_renderer);
+    {
+        const label = try gui_gen.makeLabel("Hello world", window_size.width);
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
     }
-};
+
+    for (0..app.button_state.len) |idx| {
+        const button = try gui_gen.makeButton(
+            AppButtonTextGenerator{ .app = app, .idx = idx },
+            .{ .change_button_state = idx },
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, button);
+    }
+
+    const text_input_label = try gui_gen.makeLabel(
+        "text input",
+        std.math.maxInt(u31),
+    );
+    try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input_label);
+
+    for (0..app.text_input.len) |idx| {
+        const text_input = try gui_gen.makeTextbox(
+            ArrayListLabelData{ .al = &app.text_input[idx] },
+            MakeInsertLetter{ .input_idx = idx },
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
+    }
+
+    {
+        const add_label = try gui_gen.makeLabel(
+            "New label",
+            std.math.maxInt(u31),
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, add_label);
+
+        const NewItemNameAdapter = struct {
+            app: *App,
+
+            pub fn getText(adap: @This()) []const u8 {
+                return adap.app.new_item_name.items;
+            }
+        };
+        const text_input = try gui_gen.makeTextbox(
+            NewItemNameAdapter{ .app = app },
+            &UiAction.makeEditNewItemName,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
+
+        const button = try gui_gen.makeButton(
+            "add",
+            .commit_new_item,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, button);
+
+        const remove_button = try gui_gen.makeButton(
+            "remove",
+            .remove_selected_item,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, remove_button);
+
+        const label = try gui_gen.makeLabel(
+            "Select an item",
+            std.math.maxInt(u31),
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+
+        const selectable_list = try gui_gen.makeSelectableList(
+            RetrieveSelectableItems{ .app = app },
+            &UiAction.makeSelectItem,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, selectable_list);
+    }
+
+    {
+        const color_label = try gui_gen.makeLabel(
+            "Highlight color",
+            std.math.maxInt(u31),
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_label);
+    }
+
+    {
+        const color_popup = try gui_gen.makeColorPicker(
+            &app.hightlight_color,
+            &UiAction.makeChangeHighlightColor,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
+    }
+
+    {
+        const color_popup = try gui_gen.makeColorPicker(
+            &app.sample_color,
+            &UiAction.makeChangeSampleColor,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
+    }
+
+    for (0..app.adjustable_float.len) |i| {
+        const label = try gui_gen.makeLabel(
+            "float value",
+            gui_gen.main_layout.availableSize(window_size).width,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+
+        const drag_float = try gui_gen.makeDragFloat(
+            AppGetAdjustableFloat{ .app = app, .idx = i },
+            AppDragGenerator{ .idx = i },
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, drag_float);
+    }
+
+    {
+        const label = try gui_gen.makeLabel(
+            CounterText{ .app = app },
+            gui_gen.main_layout.availableSize(window_size).width,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+
+        const dec = try gui_gen.makeButton(
+            "decrement",
+            .decrement_counter,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, dec);
+
+        const inc = try gui_gen.makeButton(
+            "increment",
+            .increment_counter,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, inc);
+    }
+
+    {
+        const label = try gui_gen.makeLabel(
+            @embedFile("res/lorem_ipsum.txt"),
+            gui_gen.main_layout.availableSize(window_size).width,
+        );
+        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+    }
+}
 
 fn getInputAction(layout: Widget(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
     if (overlay.getSize().width != 0) {
@@ -608,131 +504,12 @@ pub fn main() !void {
         try app.item_list.append(alloc, item_text);
     }
 
-    const font_size = 11.0;
-    var text_renderer = try TextRenderer.init(alloc, font_size);
-    defer text_renderer.deinit(alloc);
-
-    const distance_field_renderer = try sphrender.DistanceFieldGenerator.init();
-    defer distance_field_renderer.deinit();
-
-    const font_data = @embedFile("res/Hack-Regular.ttf");
-    var ttf = try ttf_mod.Ttf.init(alloc, font_data);
-    defer ttf.deinit(alloc);
-
-    const unit: f32 = @floatFromInt(ttf_mod.lineHeightPx(ttf, font_size));
-
-    const widget_width: u31 = @intFromFloat(unit * 8);
-    const button_height: u31 = @intFromFloat(unit * 2);
-    const text_wrapped_height: u31 = @intFromFloat(unit * 1.3);
-    const widget_text_padding: u31 = @intFromFloat(unit / 5);
-    const corner_radius: f32 = unit / 5;
-
-    var drag_style = DragFloatStyle{
-        .size = .{
-            .width = widget_width,
-            .height = text_wrapped_height,
-        },
-        .corner_radius = corner_radius,
-        .default_color = GlobalStyle.default_color,
-        .hover_color = GlobalStyle.hover_color,
-        .active_color = GlobalStyle.active_color,
-    };
-
-    const squircle_renderer = try SquircleRenderer.init(alloc);
-    defer squircle_renderer.deinit(alloc);
-
-    var guitext_shared = gui.gui_text.SharedState{
-        .ttf = &ttf,
-        .text_renderer = &text_renderer,
-        .distance_field_generator = &distance_field_renderer,
-    };
-
-    var shared_button_state = SharedButtonState{
-        .text_shared = &guitext_shared,
-        .style = .{
-            .default_color = GlobalStyle.default_color,
-            .hover_color = GlobalStyle.hover_color,
-            .click_color = GlobalStyle.active_color,
-            .desired_width = widget_width,
-            .desired_height = button_height,
-            .corner_radius = corner_radius,
-            .padding = widget_text_padding,
-        },
-        .squircle_renderer = &squircle_renderer,
-    };
-
-    var scroll_style = gui.scrollbar.Style{
-        .default_color = GlobalStyle.default_color,
-        .hover_color = GlobalStyle.hover_color,
-        .active_color = GlobalStyle.active_color,
-        .gutter_color = GlobalStyle.background_color2,
-        .corner_radius = corner_radius,
-        .width = @intFromFloat(unit * 0.75),
-    };
-
-    var color_picker_state = try gui.color_picker.SharedColorPickerState.init(
-        alloc,
-        gui.color_picker.ColorStyle{
-            .preview_width = widget_width,
-            .popup_width = widget_width,
-            .popup_background = GlobalStyle.background_color2,
-            .color_preview_height = text_wrapped_height,
-            .item_pad = widget_text_padding,
-            .corner_radius = corner_radius,
-            .drag_style = drag_style,
-        },
-        &guitext_shared,
-        &squircle_renderer,
-    );
-    defer color_picker_state.deinit(alloc);
-    var textbox_state = gui.textbox.SharedTextboxState{
-        .squircle_renderer = &squircle_renderer,
-        .guitext_shared = &guitext_shared,
-        .style = .{
-            .cursor_width = @intFromFloat(unit * 0.1),
-            .cursor_height = @intFromFloat(unit * 0.9),
-            .corner_radius = corner_radius,
-            .cursor_color = Color{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-            .label_pad = widget_text_padding,
-            .background_color = GlobalStyle.default_color,
-            .size = .{
-                .width = widget_width,
-                .height = text_wrapped_height,
-            },
-        },
-    };
-
-    var selectable_list_state = gui.selectable_list.SharedState{
-        .gui_state = &guitext_shared,
-        .squircle_renderer = &squircle_renderer,
-        .style = .{
-            .highlight_color = GlobalStyle.default_color,
-            .hover_color = GlobalStyle.hover_color,
-            .active_color = GlobalStyle.active_color,
-            .background_color = GlobalStyle.background_color2,
-            .corner_radius = corner_radius,
-            .item_pad = widget_text_padding,
-            .width = widget_width,
-            .min_item_height = @intFromFloat(unit),
-        },
-    };
-
-    var root_stack = try gui.stack.Stack(UiAction).init(alloc);
-    defer root_stack.deinit(alloc);
-
-    var overlay = gui.popup_layer.PopupLayer(UiAction){};
-    // FIXME: Leak if it's pushed into the root stack too late
-
-    const root_stack_widget = root_stack.toWidget();
-
-    const layout_generator = AppLayoutGenerator{ .guitext_state = &guitext_shared, .drag_style = &drag_style, .shared_button_state = &shared_button_state, .scroll_style = &scroll_style, .squircle_renderer = &squircle_renderer, .layout_item_pad = @intFromFloat(unit / 2.0), .shared_color = &color_picker_state, .overlay = &overlay, .shared_textbox_state = &textbox_state, .shared_selecatble_list_state = &selectable_list_state };
-
-    const layout = try layout_generator.generateLayoutForApp(alloc, .{
+    const gui_gen = try gui.default_gui.defaultGui(UiAction, alloc);
+    defer gui_gen.deinit();
+    try generateLayoutForApp(gui_gen, .{
         .width = window_width,
         .height = window_height,
     }, &app);
-    try root_stack.pushWidgetOrDeinit(alloc, layout, .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
-    try root_stack.pushWidgetOrDeinit(alloc, overlay.asWidget(), .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
 
     while (!glfw.closed()) {
         const width, const height = glfw.getWindowSize();
@@ -754,15 +531,15 @@ pub fn main() !void {
             .height = window_bounds.calcHeight(),
         };
 
-        try root_stack_widget.update(window_size);
+        try gui_gen.root.update(window_size);
 
         input_state.startFrame();
         while (glfw.queue.readItem()) |action| {
             try input_state.pushInput(alloc, action);
         }
 
-        const input_response = root_stack_widget.setInputState(window_bounds, input_state);
-        root_stack_widget.setFocused(input_response.wants_focus);
+        const input_response = gui_gen.root.setInputState(window_bounds, input_state);
+        gui_gen.root.setFocused(input_response.wants_focus);
 
         if (input_response.action) |action| {
             switch (action) {
@@ -775,26 +552,26 @@ pub fn main() !void {
                 .increment_counter => app.counter += 1,
                 .decrement_counter => app.counter -= 1,
                 .change_highlight_color => |color| {
-                    const new_hover = GlobalStyle.hoverColor(color);
-                    const new_active = GlobalStyle.activeColor(color);
+                    const new_hover = gui.default_gui.GlobalStyle.hoverColor(color);
+                    const new_active = gui.default_gui.GlobalStyle.activeColor(color);
 
-                    drag_style.default_color = color;
-                    drag_style.hover_color = new_hover;
-                    drag_style.active_color = new_active;
+                    gui_gen.drag_style.default_color = color;
+                    gui_gen.drag_style.hover_color = new_hover;
+                    gui_gen.drag_style.active_color = new_active;
 
-                    shared_button_state.style.default_color = color;
-                    shared_button_state.style.hover_color = new_hover;
-                    shared_button_state.style.click_color = new_active;
+                    gui_gen.shared_button_state.style.default_color = color;
+                    gui_gen.shared_button_state.style.hover_color = new_hover;
+                    gui_gen.shared_button_state.style.click_color = new_active;
 
-                    scroll_style.default_color = color;
-                    scroll_style.hover_color = new_hover;
-                    scroll_style.active_color = new_active;
+                    gui_gen.scroll_style.default_color = color;
+                    gui_gen.scroll_style.hover_color = new_hover;
+                    gui_gen.scroll_style.active_color = new_active;
 
-                    color_picker_state.style.drag_style.default_color = color;
-                    color_picker_state.style.drag_style.hover_color = new_hover;
-                    color_picker_state.style.drag_style.active_color = new_active;
+                    gui_gen.shared_color.style.drag_style.default_color = color;
+                    gui_gen.shared_color.style.drag_style.hover_color = new_hover;
+                    gui_gen.shared_color.style.drag_style.active_color = new_active;
 
-                    textbox_state.style.background_color = color;
+                    gui_gen.shared_textbox_state.style.background_color = color;
 
                     app.hightlight_color = color;
                 },
@@ -826,7 +603,7 @@ pub fn main() !void {
             }
         }
 
-        root_stack_widget.render(window_bounds, window_bounds);
+        gui_gen.root.render(window_bounds, window_bounds);
 
         glfw.swapBuffers();
     }

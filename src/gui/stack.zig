@@ -62,7 +62,7 @@ pub fn Stack(comptime ActionType: type) type {
             self.total_size = newTotalSize(self.total_size, layout, item_size);
         }
 
-        pub fn toWidget(self: *Self) Widget(ActionType) {
+        pub fn asWidget(self: *Self) Widget(ActionType) {
             return .{
                 .ctx = self,
                 .vtable = &widget_vtable,

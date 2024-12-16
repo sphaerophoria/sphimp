@@ -10,6 +10,7 @@ const Builder = struct {
     sphmath: *std.Build.Module,
     sphrender: *std.Build.Module,
     sphtext: *std.Build.Module,
+    sphui: *std.Build.Module,
 
     fn init(b: *std.Build) Builder {
         const target = b.standardTargetOptions(.{});
@@ -32,6 +33,13 @@ const Builder = struct {
         sphtext.addImport("sphrender", sphrender);
         sphtext.addImport("sphmath", sphmath);
 
+        const sphui = b.createModule(.{
+            .root_source_file = b.path("src/gui/gui.zig"),
+        });
+        sphui.addImport("sphrender", sphrender);
+        sphui.addImport("sphmath", sphmath);
+        sphui.addImport("sphtext", sphtext);
+
         return .{
             .b = b,
             .check_step = check_step,
@@ -40,6 +48,7 @@ const Builder = struct {
             .sphmath = sphmath,
             .sphrender = sphrender,
             .sphtext = sphtext,
+            .sphui = sphui,
         };
     }
 
@@ -123,6 +132,7 @@ pub fn build(b: *std.Build) !void {
     );
     gui_demo.linkSystemLibrary("glfw");
     builder.addAppDependencies(gui_demo);
+    gui_demo.root_module.addImport("sphui", builder.sphui);
     try builder.installAndCheck(gui_demo);
 
     const lint_exe = builder.addExecutable(

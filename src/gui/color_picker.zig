@@ -209,7 +209,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             };
 
             try stack.pushWidgetOrDeinit(self.alloc, overlay_widgets.content, .centered);
-            return stack.toWidget();
+            return stack.asWidget();
         }
 
         fn spawnOverlay(self: *Self, overlay_pos: MousePos) !void {
