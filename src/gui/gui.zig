@@ -17,6 +17,7 @@ pub const gui_text = @import("gui_text.zig");
 pub const selectable_list = @import("selectable_list.zig");
 pub const SquircleRenderer = @import("SquircleRenderer.zig");
 pub const default_gui = @import("default_gui.zig");
+pub const even_vert_layout = @import("even_vert_layout.zig");
 
 test {
     std.testing.refAllDeclsRecursive(@This());

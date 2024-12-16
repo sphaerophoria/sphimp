@@ -7,7 +7,11 @@ const gui = @import("gui.zig");
 pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(ActionType) {
     const ret = try alloc.create(DefaultGui(ActionType));
     errdefer alloc.destroy(ret);
+    ret.root = null;
     ret.alloc = alloc;
+
+    ret.input_state = gui.InputState{};
+    errdefer ret.input_state.deinit(alloc);
 
     const font_size = 11.0;
     ret.text_renderer = try sphtext.TextRenderer.init(alloc, font_size);
@@ -21,6 +25,7 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
     errdefer ret.ttf.deinit(alloc);
 
     const unit: f32 = @floatFromInt(sphtext.ttf.lineHeightPx(ret.ttf, font_size));
+    ret.layout_pad = @intFromFloat(unit / 2);
 
     const widget_width: u31 = @intFromFloat(unit * 8);
     const button_height: u31 = @intFromFloat(unit * 2);
@@ -119,19 +124,9 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
         },
     };
 
-    var root_stack = try gui.stack.Stack(ActionType).init(alloc);
-    errdefer root_stack.deinit(alloc);
-    ret.root = root_stack.asWidget();
 
     ret.overlay = gui.popup_layer.PopupLayer(ActionType){};
 
-    ret.main_layout = try gui.layout.Layout(ActionType).init(alloc, @intFromFloat(unit / 2));
-    //errdefer ret.main_layout.deinit(alloc);
-    const scroll = try gui.scroll_view.ScrollView(ActionType).init(alloc, ret.main_layout.asWidget(), &ret.scroll_style, &ret.squircle_renderer);
-    // FIXME: Error handling of overlay/main/scroll
-
-    try root_stack.pushWidgetOrDeinit(alloc, scroll, .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
-    try root_stack.pushWidgetOrDeinit(alloc, ret.overlay.asWidget(), .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
 
     return ret;
 }
@@ -165,8 +160,10 @@ pub const GlobalStyle = struct {
 pub fn DefaultGui(comptime ActionType: type) type {
     return struct {
         alloc: Allocator,
-        root: gui.Widget(ActionType),
+        root: ?gui.Widget(ActionType),
 
+        layout_pad: u31,
+        input_state: gui.InputState,
         text_renderer: sphtext.TextRenderer,
         distance_field_renderer: sphrender.DistanceFieldGenerator,
         ttf: sphtext.ttf.Ttf,
@@ -179,12 +176,12 @@ pub fn DefaultGui(comptime ActionType: type) type {
         shared_textbox_state: gui.textbox.SharedTextboxState,
         shared_selecatble_list_state: gui.selectable_list.SharedState,
         overlay: gui.popup_layer.PopupLayer(ActionType),
-        main_layout: *gui.layout.Layout(ActionType),
 
         const Self = @This();
 
         pub fn deinit(self: *Self) void {
-            self.root.deinit(self.alloc);
+            if (self.root) |r| r.deinit(self.alloc);
+
             self.text_renderer.deinit(self.alloc);
             self.distance_field_renderer.deinit();
             self.ttf.deinit(self.alloc);
@@ -255,6 +252,68 @@ pub fn DefaultGui(comptime ActionType: type) type {
                 &self.guitext_state,
                 &self.squircle_renderer,
             );
+        }
+
+        pub fn makeLayout(self: *Self) !*gui.layout.Layout(ActionType) {
+            return gui.layout.Layout(ActionType).init(self.alloc, self.layout_pad);
+        }
+
+        pub fn makeEvenVertLayout(self: *Self) !*gui.even_vert_layout.EvenVertLayout(ActionType) {
+            const ret = try self.alloc.create(gui.even_vert_layout.EvenVertLayout(ActionType));
+            ret.* = .{};
+            return ret;
+        }
+
+        pub fn makeStack(self: *Self) !*gui.stack.Stack(ActionType) {
+            return gui.stack.Stack(ActionType).init(self.alloc);
+        }
+
+        pub fn makeRect(self: *Self, size: gui.PixelSize, color: gui.Color) !gui.Widget(ActionType) {
+            return gui.rect.Rect(ActionType).init(
+                self.alloc,
+                size,
+                color,
+                &self.squircle_renderer
+            );
+        }
+
+        pub fn setRootWidgetOrDeinit(self: *Self, widget: gui.Widget(ActionType)) !void {
+            errdefer widget.deinit(self.alloc);
+
+            const root_stack = try gui.stack.Stack(ActionType).init(self.alloc);
+            errdefer root_stack.deinit(self.alloc);
+
+            try root_stack.pushWidgetOrDeinit(self.alloc, widget, .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
+            try root_stack.pushWidgetOrDeinit(self.alloc, self.overlay.asWidget(), .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
+            if (self.root) |r| r.deinit(self.alloc);
+            self.root = root_stack.asWidget();
+        }
+
+        pub fn step(self: *Self, widget_bounds: gui.PixelBBox, window_size: gui.PixelSize, input_queue: anytype) !?ActionType {
+            const root = self.root orelse return null;
+            const widget_size = gui.PixelSize {
+                .width = widget_bounds.calcWidth(),
+                .height = widget_bounds.calcHeight(),
+
+            };
+            try root.update(widget_size);
+
+            self.input_state.startFrame();
+            while (input_queue.readItem()) |action| {
+                try self.input_state.pushInput(self.alloc, action);
+            }
+
+            const window_bounds = gui.PixelBBox{
+                .top = 0,
+                .bottom = window_size.height,
+                .left = 0,
+                .right = window_size.width,
+            };
+
+            const input_response = root.setInputState(widget_bounds, self.input_state);
+            root.setFocused(input_response.wants_focus);
+            root.render(widget_bounds, window_bounds);
+            return input_response.action;
         }
     };
 }

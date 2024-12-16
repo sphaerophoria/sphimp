@@ -942,6 +942,10 @@ pub const Objects = struct {
         return self.inner.getPtr(id) orelse @panic("Invalid object ID");
     }
 
+    pub fn numItems(self: Objects) usize {
+        return self.inner.count();
+    }
+
     pub fn nextId(self: Objects) ObjectId {
         return .{ .value = self.next_id };
     }

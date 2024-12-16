@@ -16,6 +16,7 @@ pub const Style = struct {
     background_color: gui.Color,
     corner_radius: f32,
     item_pad: u31,
+    // FIXME: remove
     width: u31,
     min_item_height: u31,
 };
@@ -46,6 +47,7 @@ pub fn selectableList(comptime ActionType: type, alloc: Allocator, retriever: an
     ret.* = .{
         .alloc = alloc,
         .retriever = retriever,
+        .parent_width = shared.style.width,
         .action_generator = generator,
         .item_labels = item_labels,
         .shared = shared,
@@ -63,6 +65,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
         retriever: Retriever,
         action_generator: GenerateSelect,
         item_labels: std.ArrayListUnmanaged(TextItem),
+        parent_width: u31,
         shared: *const SharedState,
         hover_idx: ?usize = null,
         click_idx: ?usize = null,
@@ -114,7 +117,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
                 .left = 0,
                 .top = 0,
                 .bottom = std.math.maxInt(i32),
-                .right = self.shared.style.width,
+                .right = self.parent_width,
             };
 
             var it = LabelBoundsIt.init(widget_bounds, &self.shared.style, self.item_labels.items);
@@ -122,20 +125,22 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
             while (it.next()) |_| {}
 
             return .{
-                .width = self.shared.style.width,
+                .width = self.parent_width,
                 .height = @intCast(@max(it.y_offs, self.shared.style.min_item_height)),
             };
         }
 
-        fn update(ctx: ?*anyopaque, _: PixelSize) !void {
+        fn update(ctx: ?*anyopaque, available_space: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             const num_items = self.retriever.numItems();
 
-            try appendMissingTextItems(TextItem, self.alloc, self.shared, self.retriever, &self.item_labels, num_items);
+            self.parent_width = available_space.width;
+
+            try appendMissingTextItems(TextItem, self.alloc, self.shared, self.retriever, &self.item_labels, num_items, self.parent_width);
             removeExtraTextItems(TextItem, self.alloc, &self.item_labels, num_items);
 
             for (self.item_labels.items) |*item| {
-                try item.update(self.alloc, self.shared.style.width);
+                try item.update(self.alloc, self.parent_width);
             }
         }
 
@@ -156,7 +161,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
                 if (item.full_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                     ret = .{
                         .wants_focus = false,
-                        .action = self.action_generator(item.idx),
+                        .action = generateAction(ActionType, &self.action_generator, item.idx),
                     };
                     click_idx = item.idx;
                 } else if (item.full_bounds.containsMousePos(input_state.mouse_pos)) {
@@ -283,6 +288,7 @@ fn appendMissingTextItems(
     retriever: anytype,
     item_labels: *std.ArrayListUnmanaged(TextItem),
     num_items: usize,
+    parent_width: u31,
 ) !void {
     if (item_labels.items.len >= num_items) {
         return;
@@ -293,7 +299,7 @@ fn appendMissingTextItems(
             alloc,
             shared.gui_state,
             labelAdaptor(retriever, i),
-            shared.style.width,
+            parent_width,
         );
         errdefer text.deinit(alloc);
 
@@ -305,5 +311,27 @@ fn removeExtraTextItems(comptime TextItem: type, alloc: Allocator, item_labels: 
     while (item_labels.items.len > num_items) {
         const item = item_labels.pop();
         item.deinit(alloc);
+    }
+}
+
+fn generateAction(comptime ActionType: type, action_generator: anytype, idx: usize) ActionType {
+    const Ptr = @TypeOf(action_generator);
+    const T = @typeInfo(Ptr).Pointer.child;
+
+    switch (@typeInfo(T)) {
+        .Struct => {
+            if (@hasDecl(T, "generate")) {
+                return action_generator.generate(idx);
+            }
+        },
+        .Pointer => |p| {
+            switch (@typeInfo(p.child)) {
+                .Fn => {
+                    return action_generator.*(idx);
+                },
+                else => {},
+            }
+        },
+        else => {},
     }
 }

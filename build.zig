@@ -73,23 +73,7 @@ const Builder = struct {
 
     fn addGuiDependencies(self: *Builder, exe: *std.Build.Step.Compile) void {
         exe.linkSystemLibrary("glfw");
-        exe.addCSourceFiles(.{
-            .files = &.{
-                "cimgui/cimgui.cpp",
-                "cimgui/imgui/imgui.cpp",
-                "cimgui/imgui/imgui_draw.cpp",
-                "cimgui/imgui/imgui_demo.cpp",
-                "cimgui/imgui/imgui_tables.cpp",
-                "cimgui/imgui/imgui_widgets.cpp",
-                "cimgui/imgui/backends/imgui_impl_glfw.cpp",
-                "cimgui/imgui/backends/imgui_impl_opengl3.cpp",
-            },
-        });
-        exe.addIncludePath(self.b.path("cimgui"));
-        exe.addIncludePath(self.b.path("cimgui/generator/output"));
-        exe.addIncludePath(self.b.path("cimgui/imgui/backends"));
-        exe.addIncludePath(self.b.path("cimgui/imgui"));
-        exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
+        exe.root_module.addImport("sphui", self.sphui);
     }
 
     fn addExecutable(self: *Builder, name: []const u8, root_source_file: []const u8) *std.Build.Step.Compile {
@@ -126,14 +110,14 @@ pub fn build(b: *std.Build) !void {
     builder.addGuiDependencies(exe);
     try builder.installAndCheck(exe);
 
-    const gui_demo = builder.addExecutable(
-        "gui_demo",
-        "src/gui/demo.zig",
-    );
-    gui_demo.linkSystemLibrary("glfw");
-    builder.addAppDependencies(gui_demo);
-    gui_demo.root_module.addImport("sphui", builder.sphui);
-    try builder.installAndCheck(gui_demo);
+    //const gui_demo = builder.addExecutable(
+    //    "gui_demo",
+    //    "src/gui/demo.zig",
+    //);
+    //gui_demo.linkSystemLibrary("glfw");
+    //builder.addAppDependencies(gui_demo);
+    //gui_demo.root_module.addImport("sphui", builder.sphui);
+    //try builder.installAndCheck(gui_demo);
 
     const lint_exe = builder.addExecutable(
         "lint",

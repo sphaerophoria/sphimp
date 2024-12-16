@@ -319,12 +319,14 @@ const RetrieveSelectableItems = struct {
     }
 };
 
-fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_size: PixelSize, app: *App) !void {
-    gui_gen.main_layout.reset(gui_gen.alloc);
+fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_size: PixelSize, app: *App) !Widget(UiAction) {
+
+    const layout = try gui.layout.Layout(UiAction).init(gui_gen.alloc, gui_gen.layout_pad);
+    errdefer layout.deinit(gui_gen.alloc);
 
     {
         const label = try gui_gen.makeLabel("Hello world", window_size.width);
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, label);
     }
 
     for (0..app.button_state.len) |idx| {
@@ -332,21 +334,21 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             AppButtonTextGenerator{ .app = app, .idx = idx },
             .{ .change_button_state = idx },
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, button);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, button);
     }
 
     const text_input_label = try gui_gen.makeLabel(
         "text input",
         std.math.maxInt(u31),
     );
-    try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input_label);
+    try layout.pushOrDeinitWidget(gui_gen.alloc, text_input_label);
 
     for (0..app.text_input.len) |idx| {
         const text_input = try gui_gen.makeTextbox(
             ArrayListLabelData{ .al = &app.text_input[idx] },
             MakeInsertLetter{ .input_idx = idx },
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
     }
 
     {
@@ -354,7 +356,7 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             "New label",
             std.math.maxInt(u31),
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, add_label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, add_label);
 
         const NewItemNameAdapter = struct {
             app: *App,
@@ -367,31 +369,31 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             NewItemNameAdapter{ .app = app },
             &UiAction.makeEditNewItemName,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, text_input);
 
         const button = try gui_gen.makeButton(
             "add",
             .commit_new_item,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, button);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, button);
 
         const remove_button = try gui_gen.makeButton(
             "remove",
             .remove_selected_item,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, remove_button);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, remove_button);
 
         const label = try gui_gen.makeLabel(
             "Select an item",
             std.math.maxInt(u31),
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, label);
 
         const selectable_list = try gui_gen.makeSelectableList(
             RetrieveSelectableItems{ .app = app },
             &UiAction.makeSelectItem,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, selectable_list);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, selectable_list);
     }
 
     {
@@ -399,7 +401,7 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             "Highlight color",
             std.math.maxInt(u31),
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, color_label);
     }
 
     {
@@ -407,7 +409,7 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             &app.hightlight_color,
             &UiAction.makeChangeHighlightColor,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
     }
 
     {
@@ -415,50 +417,54 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
             &app.sample_color,
             &UiAction.makeChangeSampleColor,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, color_popup);
     }
 
     for (0..app.adjustable_float.len) |i| {
         const label = try gui_gen.makeLabel(
             "float value",
-            gui_gen.main_layout.availableSize(window_size).width,
+            layout.availableSize(window_size).width,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, label);
 
         const drag_float = try gui_gen.makeDragFloat(
             AppGetAdjustableFloat{ .app = app, .idx = i },
             AppDragGenerator{ .idx = i },
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, drag_float);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, drag_float);
     }
 
     {
         const label = try gui_gen.makeLabel(
             CounterText{ .app = app },
-            gui_gen.main_layout.availableSize(window_size).width,
+            layout.availableSize(window_size).width,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, label);
 
         const dec = try gui_gen.makeButton(
             "decrement",
             .decrement_counter,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, dec);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, dec);
 
         const inc = try gui_gen.makeButton(
             "increment",
             .increment_counter,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, inc);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, inc);
     }
 
     {
         const label = try gui_gen.makeLabel(
             @embedFile("res/lorem_ipsum.txt"),
-            gui_gen.main_layout.availableSize(window_size).width,
+            layout.availableSize(window_size).width,
         );
-        try gui_gen.main_layout.pushOrDeinitWidget(gui_gen.alloc, label);
+        try layout.pushOrDeinitWidget(gui_gen.alloc, label);
     }
+
+    // FIXME: makeScrollView
+    const scroll = try ScrollView(UiAction).init(gui_gen.alloc, layout.asWidget(), &gui_gen.scroll_style, &gui_gen.squircle_renderer);
+    return scroll;
 }
 
 fn getInputAction(layout: Widget(UiAction), overlay: Widget(UiAction), input_state: InputState, layout_bounds: PixelBBox) ?UiAction {
@@ -494,9 +500,6 @@ pub fn main() !void {
     var app = App{};
     defer app.deinit(alloc);
 
-    var input_state = InputState{};
-    defer input_state.deinit(alloc);
-
     for (0..5) |i| {
         const item_text = try std.fmt.allocPrint(alloc, "item {d}", .{i});
         errdefer alloc.free(item_text);
@@ -506,10 +509,12 @@ pub fn main() !void {
 
     const gui_gen = try gui.default_gui.defaultGui(UiAction, alloc);
     defer gui_gen.deinit();
-    try generateLayoutForApp(gui_gen, .{
+    const root_widget = try generateLayoutForApp(gui_gen, .{
         .width = window_width,
         .height = window_height,
     }, &app);
+
+    try gui_gen.setRootWidgetOrDeinit(root_widget);
 
     while (!glfw.closed()) {
         const width, const height = glfw.getWindowSize();
@@ -519,29 +524,15 @@ pub fn main() !void {
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT);
 
-        const window_bounds = PixelBBox{
-            .top = 0,
-            .bottom = @intCast(height),
-            .left = 0,
-            .right = @intCast(width),
-        };
 
         const window_size = PixelSize{
-            .width = window_bounds.calcWidth(),
-            .height = window_bounds.calcHeight(),
+            .width = @intCast(width),
+            .height = @intCast(height),
         };
 
-        try gui_gen.root.update(window_size);
+        const action_opt = try gui_gen.step(window_size, &glfw.queue);
 
-        input_state.startFrame();
-        while (glfw.queue.readItem()) |action| {
-            try input_state.pushInput(alloc, action);
-        }
-
-        const input_response = gui_gen.root.setInputState(window_bounds, input_state);
-        gui_gen.root.setFocused(input_response.wants_focus);
-
-        if (input_response.action) |action| {
+        if (action_opt) |action| {
             switch (action) {
                 .change_button_state => |idx| {
                     app.button_state[idx] = !app.button_state[idx];
@@ -602,8 +593,6 @@ pub fn main() !void {
                 },
             }
         }
-
-        gui_gen.root.render(window_bounds, window_bounds);
 
         glfw.swapBuffers();
     }

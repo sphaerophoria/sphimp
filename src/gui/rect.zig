@@ -21,6 +21,7 @@ pub fn Rect(comptime ActionType: type) type {
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
+            .update = Self.update,
         };
 
         pub fn init(
@@ -50,6 +51,11 @@ pub fn Rect(comptime ActionType: type) type {
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return self.size;
+        }
+
+        fn update(ctx: ?*anyopaque, available_size: PixelSize) !void  {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.size = available_size;
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window: PixelBBox) void {
