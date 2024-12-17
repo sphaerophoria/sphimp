@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const sphrender = @import("sphrender");
 const gui = @import("gui.zig");
 const Scrollbar = gui.scrollbar.Scrollbar;
 const SquircleRenderer = @import("SquircleRenderer.zig");
@@ -110,7 +111,6 @@ pub fn ScrollView(comptime ActionType: type) type {
                 @as(f32, @floatFromInt(self.contentHeight()));
         }
 
-        // FIXME: container_bounds should already be intersection
         fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.scrollbar.handleInput(
@@ -137,7 +137,15 @@ pub fn ScrollView(comptime ActionType: type) type {
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.layout.render(self.layoutBounds(bounds), window_bounds);
+
+            {
+                const scissor = sphrender.TemporaryScissor.init();
+                defer scissor.reset();
+
+                const child_bounds = self.layoutBounds(bounds);
+                scissor.set(bounds.left, window_bounds.bottom - bounds.bottom, bounds.calcWidth(), bounds.calcHeight());
+                self.layout.render(child_bounds, window_bounds);
+            }
 
             const window_width = window_bounds.calcWidth();
             const window_height = window_bounds.calcHeight();
@@ -161,12 +169,15 @@ pub fn ScrollView(comptime ActionType: type) type {
         }
 
         fn layoutBounds(self: Self, bounds: PixelBBox) PixelBBox {
-            var layout_bounds = bounds;
-            layout_bounds.top -= self.scroll_offs;
-            layout_bounds.top += top_pad;
-            layout_bounds.left += left_pad;
-            layout_bounds.bottom -= self.scroll_offs;
-            return layout_bounds;
+            const top = bounds.top - self.scroll_offs;
+            const left = bounds.left;
+            const layout_size = self.layout.getSize();
+            return .{
+                .top = top,
+                .left = left,
+                .right = left + layout_size.width,
+                .bottom = top + layout_size.height,
+            };
         }
 
         fn contentHeight(self: Self) i32 {

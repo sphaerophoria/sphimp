@@ -189,16 +189,16 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
             self.focused = focused;
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             var wants_focus = self.focused;
 
-            if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+            if (input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                 wants_focus = true;
             }
 
             if (input_state.mouse_down_location) |loc| {
-                if (self.focused and !widget_bounds.containsMousePos(loc)) {
+                if (self.focused and !input_bounds.containsMousePos(loc)) {
                     wants_focus = false;
                 }
             }

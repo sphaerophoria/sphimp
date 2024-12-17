@@ -403,9 +403,11 @@ fn makeObjList(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wr
     try object_list_layout.pushOrDeinitWidget(default_gui.alloc, label);
 
     const obj_list = try default_gui.makeSelectableList(ObjectListRetriever { .app = app }, ObjectListActionGen { .app = app } );
-    try object_list_layout.pushOrDeinitWidget(default_gui.alloc, obj_list);
+    // FIXME: errdefer free obj_list
+    const scroll_select = try default_gui.makeScrollView(obj_list);
+    try object_list_layout.pushOrDeinitWidget(default_gui.alloc, scroll_select);
 
-    return default_gui.makeScrollView(object_list_layout.asWidget());
+    return object_list_layout.asWidget();
 }
 
 fn makeCreateObject(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31) !gui.Widget(UiAction) {
@@ -486,6 +488,7 @@ pub fn main() !void {
             .height = @intCast(widget_bounds.bottom),
         },
         gui.default_gui.GlobalStyle.background_color,
+        true,
     );
     try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, object_list_background, .{ .offset =  .{ .x_offs = 0, .y_offs = 0 }});
 

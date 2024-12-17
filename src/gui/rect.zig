@@ -14,6 +14,7 @@ pub fn Rect(comptime ActionType: type) type {
         size: PixelSize,
         renderer: *const SquircleRenderer,
         color: Color,
+        fill_parent: bool,
 
         const Self = @This();
 
@@ -28,12 +29,14 @@ pub fn Rect(comptime ActionType: type) type {
             alloc: Allocator,
             size: PixelSize,
             color: Color,
+            fill_parent: bool,
             renderer: *const SquircleRenderer,
         ) !Widget(ActionType) {
             const rect = try alloc.create(Self);
             rect.* = .{
                 .size = size,
                 .color = color,
+                .fill_parent = fill_parent,
                 .renderer = renderer,
             };
 
@@ -55,7 +58,9 @@ pub fn Rect(comptime ActionType: type) type {
 
         fn update(ctx: ?*anyopaque, available_size: PixelSize) !void  {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.size = available_size;
+            if (self.fill_parent) {
+                self.size = available_size;
+            }
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window: PixelBBox) void {

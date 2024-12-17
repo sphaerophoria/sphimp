@@ -13,7 +13,7 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
     ret.input_state = gui.InputState{};
     errdefer ret.input_state.deinit(alloc);
 
-    const font_size = 20.0;
+    const font_size = 11.0;
     ret.text_renderer = try sphtext.TextRenderer.init(alloc, font_size);
     errdefer ret.text_renderer.deinit(alloc);
 
@@ -272,11 +272,12 @@ pub fn DefaultGui(comptime ActionType: type) type {
             return gui.stack.Stack(ActionType).init(self.alloc);
         }
 
-        pub fn makeRect(self: *Self, size: gui.PixelSize, color: gui.Color) !gui.Widget(ActionType) {
+        pub fn makeRect(self: *Self, size: gui.PixelSize, color: gui.Color, fill_parent: bool) !gui.Widget(ActionType) {
             return gui.rect.Rect(ActionType).init(
                 self.alloc,
                 size,
                 color,
+                fill_parent,
                 &self.squircle_renderer
             );
         }

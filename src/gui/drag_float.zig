@@ -117,13 +117,13 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret: ?ActionType = null;
 
             if (input_state.mouse_down_location) |down_loc| {
-                if (widget_bounds.containsMousePos(down_loc)) {
+                if (input_bounds.containsMousePos(down_loc)) {
                     if (self.state != .dragging) {
                         self.state = .{ .dragging = getVal(&self.val_retriever) };
                     }
@@ -133,7 +133,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
                     const start_val = self.state.dragging;
                     ret = generateAction(ActionType, &self.drag_generator, start_val + offs * 0.01);
                 }
-            } else if (widget_bounds.containsMousePos(input_state.mouse_pos)) {
+            } else if (input_bounds.containsMousePos(input_state.mouse_pos)) {
                 self.state = .hovered;
             } else {
                 self.state = .default;

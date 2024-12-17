@@ -529,8 +529,14 @@ pub fn main() !void {
             .width = @intCast(width),
             .height = @intCast(height),
         };
+        const window_bbox = PixelBBox {
+            .top = 0,
+            .left = 0,
+            .bottom = window_size.height,
+            .right = window_size.width,
+        };
 
-        const action_opt = try gui_gen.step(window_size, &glfw.queue);
+        const action_opt = try gui_gen.step(window_bbox, window_size, &glfw.queue);
 
         if (action_opt) |action| {
             switch (action) {

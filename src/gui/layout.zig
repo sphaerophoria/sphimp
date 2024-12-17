@@ -145,6 +145,7 @@ pub fn Layout(comptime ActionType: type) type {
                     .left = bounds.left + item.bounds.left,
                     .right = bounds.left + item.bounds.right,
                 };
+
                 const input_response = item.widget.setInputState(child_bounds, child_bounds.calcIntersection(input_bounds), input_state);
 
                 if (input_response.wants_focus) {

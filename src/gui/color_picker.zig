@@ -187,6 +187,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
                     .height = content_size.height + self.shared.style.item_pad * 2,
                 },
                 self.shared.style.popup_background,
+                false,
                 self.shared.squircle_renderer,
             );
             errdefer rect.deinit(self.alloc);
@@ -223,13 +224,14 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             );
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             const ret = gui.InputResponse(ActionType){
                 .wants_focus = false,
                 .action = null,
             };
-            if (widget_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+
+            if (input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                 self.spawnOverlay(input_state.mouse_down_location.?) catch return ret;
             }
 
@@ -408,15 +410,16 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             };
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *@This() = @ptrCast(@alignCast(ctx));
 
             const prev_color = getColor(&self.color_retriever);
             const current_lightness = calcLightness(prev_color);
 
-            const split_bounds = splitHexagonBounds(self.shared.style, bounds, current_lightness);
+            const split_bounds = splitHexagonBounds(self.shared.style, widget_bounds, current_lightness);
 
-            if (split_bounds.hexagon.containsOptMousePos(input_state.mouse_down_location)) {
+            const hexagon_input_bounds = input_bounds.calcIntersection(split_bounds.hexagon);
+            if (hexagon_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                 const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, split_bounds.hexagon);
                 return .{
                     .wants_focus = false,
@@ -424,7 +427,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 };
             }
 
-            const lightness_input_bounds = split_bounds.lightness.calcUnion(split_bounds.pointer);
+            const lightness_input_bounds = split_bounds.lightness.calcUnion(split_bounds.pointer).calcIntersection(input_bounds);
 
             if (lightness_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                 const lightness_bounds_height_f: f32 = @floatFromInt(lightness_input_bounds.calcHeight());
