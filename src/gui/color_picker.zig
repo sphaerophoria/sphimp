@@ -424,7 +424,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 };
             }
 
-            const lightness_input_bounds = split_bounds.lightness.merge(split_bounds.pointer);
+            const lightness_input_bounds = split_bounds.lightness.calcUnion(split_bounds.pointer);
 
             if (lightness_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                 const lightness_bounds_height_f: f32 = @floatFromInt(lightness_input_bounds.calcHeight());

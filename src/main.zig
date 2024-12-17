@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const App = @import("App.zig");
+const sphrender = @import("sphrender");
 const obj_mod = @import("object.zig");
 const sphmath = @import("sphmath");
 const shader_storage = @import("shader_storage.zig");
@@ -297,6 +298,11 @@ const background_fragment_shader =
 
 const UiAction = union(enum) {
     update_selected_object: obj_mod.ObjectId,
+    create_path,
+    create_composition,
+    create_drawing,
+    create_text,
+    create_shader: ShaderId,
 };
 
 const ObjectListRetriever = struct {
@@ -333,6 +339,7 @@ const ObjectListRetriever = struct {
     }
 };
 
+
 const ObjectListActionGen = struct {
     app: *App,
     pub fn generate(self: ObjectListActionGen, idx: usize) UiAction {
@@ -348,6 +355,45 @@ const ObjectListActionGen = struct {
         };
     }
 };
+const ShaderListRetriever = struct {
+    app: *App,
+
+    pub fn numItems(self: ShaderListRetriever) usize {
+        return self.app.shaders.numItems();
+    }
+
+    pub fn selectedId(_: ShaderListRetriever) usize {
+        return std.math.maxInt(usize);
+    }
+
+    pub fn getText(self: ShaderListRetriever, idx: usize) []const u8 {
+        var it = self.app.shaders.idIter();
+
+        var shader_id: ShaderId = it.next().?;
+        for (0..idx) |_| {
+            shader_id = it.next() orelse break;
+        }
+
+        return self.app.shaders.get(shader_id).name;
+    }
+};
+
+const CreateShaderActionGen = struct {
+    app: *App,
+    pub fn generate(self: CreateShaderActionGen, idx: usize) UiAction {
+        var it = self.app.shaders.idIter();
+
+        var shader_id: ShaderId = it.next().?;
+        for (0..idx) |_| {
+            shader_id = it.next() orelse break;
+        }
+
+        return .{
+            .create_shader = shader_id,
+        };
+    }
+};
+
 
 fn makeObjList(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31) !gui.Widget(UiAction) {
     const object_list_layout = try default_gui.makeLayout();
@@ -359,18 +405,45 @@ fn makeObjList(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wr
     const obj_list = try default_gui.makeSelectableList(ObjectListRetriever { .app = app }, ObjectListActionGen { .app = app } );
     try object_list_layout.pushOrDeinitWidget(default_gui.alloc, obj_list);
 
-    return object_list_layout.asWidget();
+    return default_gui.makeScrollView(object_list_layout.asWidget());
 }
 
 fn makeCreateObject(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31) !gui.Widget(UiAction) {
     const layout = try default_gui.makeLayout();
     errdefer layout.deinit(default_gui.alloc);
-    _ = app;
 
-    const label = try default_gui.makeLabel("Create an item", wrap_width);
-    layout.pushOrDeinitWidget(default_gui.alloc, label);
+    {
+        const label = try default_gui.makeLabel("Create an item", wrap_width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, label);
+    }
 
-    return layout.asWidget();
+    {
+        const button = try default_gui.makeButton("New path", .create_path);
+        try layout.pushOrDeinitWidget(default_gui.alloc, button);
+    }
+    {
+        const button = try default_gui.makeButton("New composition", .create_composition);
+        try layout.pushOrDeinitWidget(default_gui.alloc, button);
+    }
+    {
+        const button = try default_gui.makeButton("New drawing", .create_drawing);
+        try layout.pushOrDeinitWidget(default_gui.alloc, button);
+    }
+    {
+        const button = try default_gui.makeButton("New text", .create_text);
+        try layout.pushOrDeinitWidget(default_gui.alloc, button);
+    }
+
+    {
+        const label = try default_gui.makeLabel("Create an shader", wrap_width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, label);
+
+        const shader_list = try default_gui.makeSelectableList(ShaderListRetriever { .app = app }, CreateShaderActionGen { .app = app } );
+        try layout.pushOrDeinitWidget(default_gui.alloc, shader_list);
+
+    }
+
+    return try default_gui.makeScrollView(layout.asWidget());
 }
 
 pub fn main() !void {
@@ -386,6 +459,7 @@ pub fn main() !void {
     const window_height = 480;
 
     var glfw = Glfw{};
+
 
     try glfw.initPinned(window_width, window_height);
     defer glfw.deinit();
@@ -595,7 +669,33 @@ pub fn main() !void {
             switch (action) {
                 .update_selected_object => |id| {
                     app.setSelectedObject(id);
-                }
+                },
+                .create_path => {
+                    _ = app.createPath() catch |e| {
+                        logError("failed to create path", e, @errorReturnTrace());
+                    };
+                },
+                .create_composition => {
+                    _ = app.addComposition() catch |e| {
+                        logError("failed to create composition", e, @errorReturnTrace());
+                    };
+                },
+                .create_drawing => {
+                    _ = app.addDrawing() catch |e| {
+                        logError("failed to create drawing", e, @errorReturnTrace());
+                    };
+
+                },
+                .create_text => {
+                    _ = app.addText() catch |e| {
+                        logError("failed to create text", e, @errorReturnTrace());
+                    };
+                },
+                .create_shader => |id| {
+                    _ = app.addShaderObject("new shader", id) catch |e| {
+                        logError("failed to create shader", e, @errorReturnTrace());
+                    };
+                },
             }
         }
 

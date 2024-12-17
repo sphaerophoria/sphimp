@@ -490,12 +490,21 @@ pub const TemporaryViewport = struct {
 
 pub const TemporaryScissor = struct {
     previous_args: [4]gl.GLint,
+    previous_enable: bool,
 
     pub fn init() TemporaryScissor {
         var current = [1]gl.GLint{0} ** 4;
         gl.glGetIntegerv(gl.GL_SCISSOR_BOX, &current);
+
+        var enable: c_int = 0;
+        gl.glGetIntegerv(gl.GL_SCISSOR_TEST, &enable);
+        if (enable == 0) {
+            gl.glEnable(gl.GL_SCISSOR_TEST);
+        }
+
         return .{
             .previous_args = current,
+            .previous_enable = enable != 0,
         };
     }
 
@@ -510,5 +519,9 @@ pub const TemporaryScissor = struct {
             self.previous_args[2],
             self.previous_args[3],
         );
+
+        if (!self.previous_enable) {
+            gl.glDisable(gl.GL_SCISSOR_TEST);
+        }
     }
 };

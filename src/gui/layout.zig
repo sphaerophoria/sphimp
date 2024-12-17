@@ -130,7 +130,7 @@ pub fn Layout(comptime ActionType: type) type {
             };
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             var ret = gui.InputResponse(ActionType){
                 .wants_focus = false,
@@ -145,7 +145,7 @@ pub fn Layout(comptime ActionType: type) type {
                     .left = bounds.left + item.bounds.left,
                     .right = bounds.left + item.bounds.right,
                 };
-                const input_response = item.widget.setInputState(child_bounds, input_state);
+                const input_response = item.widget.setInputState(child_bounds, container_bounds, input_state);
 
                 if (input_response.wants_focus) {
                     if (self.focused_id) |id| {

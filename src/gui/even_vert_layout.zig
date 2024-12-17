@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const sphrender = @import("sphrender");
 const gui = @import("gui.zig");
 const Widget = gui.Widget;
 const PixelBBox = gui.PixelBBox;
@@ -54,6 +55,12 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
             for (0..self.items.items.len) |i| {
                 const item = self.items.items[i];
                 const child_bounds = childBounds(widget_bounds, item.getSize(), i, self.items.items.len);
+
+                const scissor = sphrender.TemporaryScissor.init();
+                defer scissor.reset();
+
+                scissor.set(child_bounds.left, window_bounds.calcHeight() - child_bounds.bottom, child_bounds.calcWidth(), child_bounds.calcHeight());
+
                 item.render(child_bounds, window_bounds);
             }
         }
@@ -76,7 +83,7 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret = gui.InputResponse(ActionType) {
@@ -86,7 +93,13 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
 
             for (self.items.items, 0..) |item, i| {
                 const child_bounds = childBounds(widget_bounds, item.getSize(), i, self.items.items.len);
-                const response = item.setInputState(child_bounds, input_state);
+                const child_container_bounds = PixelBBox {
+                    .top = child_bounds.top,
+                    .left = container_bounds.left,
+                    .right = container_bounds.right,
+                    .bottom = child_bounds.top + @as(i32, @intCast(self.container_size.height / self.items.items.len)),
+                };
+                const response = item.setInputState(child_bounds, child_container_bounds.calcIntersection(container_bounds), input_state);
 
                 if (response.wants_focus) {
                     ret.wants_focus = true;

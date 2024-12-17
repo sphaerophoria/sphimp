@@ -258,6 +258,10 @@ pub fn DefaultGui(comptime ActionType: type) type {
             return gui.layout.Layout(ActionType).init(self.alloc, self.layout_pad);
         }
 
+        pub fn makeScrollView(self: *Self, inner: gui.Widget(ActionType)) !gui.Widget(ActionType) {
+            return gui.scroll_view.ScrollView(ActionType).init(self.alloc, inner, &self.scroll_style, &self.squircle_renderer);
+        }
+
         pub fn makeEvenVertLayout(self: *Self) !*gui.even_vert_layout.EvenVertLayout(ActionType) {
             const ret = try self.alloc.create(gui.even_vert_layout.EvenVertLayout(ActionType));
             ret.* = .{};
@@ -310,7 +314,7 @@ pub fn DefaultGui(comptime ActionType: type) type {
                 .right = window_size.width,
             };
 
-            const input_response = root.setInputState(widget_bounds, self.input_state);
+            const input_response = root.setInputState(widget_bounds, widget_bounds, self.input_state);
             root.setFocused(input_response.wants_focus);
             root.render(widget_bounds, window_bounds);
             return input_response.action;

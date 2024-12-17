@@ -128,12 +128,21 @@ pub const PixelBBox = struct {
         return self.containsMousePos(pos);
     }
 
-    pub fn merge(a: PixelBBox, b: PixelBBox) PixelBBox {
+    pub fn calcUnion(a: PixelBBox, b: PixelBBox) PixelBBox {
         return .{
             .left = @min(a.left, b.left),
             .right = @max(a.right, b.right),
             .top = @min(a.top, b.top),
             .bottom = @max(a.bottom, b.bottom),
+        };
+    }
+
+    pub fn calcIntersection(a: PixelBBox, b: PixelBBox) PixelBBox {
+        return .{
+            .left = @max(a.left, b.left),
+            .right = @min(a.right, b.right),
+            .top = @max(a.top, b.top),
+            .bottom = @min(a.bottom, b.bottom),
         };
     }
 };
@@ -152,7 +161,7 @@ pub fn Widget(comptime ActionType: type) type {
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
-            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) = null,
+            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) = null,
             setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
         };
 
@@ -179,9 +188,9 @@ pub fn Widget(comptime ActionType: type) type {
             self.vtable.render(self.ctx, widget_bounds, window_bounds);
         }
 
-        pub fn setInputState(self: Self, widget_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) {
+        pub fn setInputState(self: Self, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) {
             if (self.vtable.setInputState) |setState| {
-                return setState(self.ctx, widget_bounds, input_state);
+                return setState(self.ctx, widget_bounds, container_bounds, input_state);
             }
             return .{
                 .wants_focus = false,
