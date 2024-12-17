@@ -98,7 +98,7 @@ pub fn Stack(comptime ActionType: type) type {
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret = gui.InputResponse(ActionType){
@@ -112,8 +112,9 @@ pub fn Stack(comptime ActionType: type) type {
 
                 const item = self.items.items[i];
                 const item_bounds = itemBounds(stack_bounds, item.layout, item.widget);
+                const item_input_bounds = item_bounds.calcIntersection(input_bounds);
 
-                const input_response = item.widget.setInputState(item_bounds, container_bounds, input_state);
+                const input_response = item.widget.setInputState(item_bounds, item_input_bounds, input_state);
                 if (input_response.wants_focus) {
                     self.focused_id = i;
                 }
@@ -121,7 +122,7 @@ pub fn Stack(comptime ActionType: type) type {
                 ret.wants_focus = input_response.wants_focus;
                 ret.action = input_response.action;
 
-                if (ret.wants_focus or util.itemConsumesInput(item_bounds, input_state)) {
+                if (ret.wants_focus or util.itemConsumesInput(item_input_bounds, input_state)) {
                     break;
                 }
             }

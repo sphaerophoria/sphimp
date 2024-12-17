@@ -111,7 +111,7 @@ pub fn ScrollView(comptime ActionType: type) type {
         }
 
         // FIXME: container_bounds should already be intersection
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.scrollbar.handleInput(
                 input_state,
@@ -121,8 +121,7 @@ pub fn ScrollView(comptime ActionType: type) type {
                 self.scroll_offs = @intFromFloat(content_height * scroll_loc);
             }
 
-            const clickable_bounds = container_bounds.calcIntersection(bounds);
-            if (clickable_bounds.containsMousePos(input_state.mouse_pos)) {
+            if (input_bounds.containsMousePos(input_state.mouse_pos)) {
                 self.scroll_offs -= @intFromFloat(input_state.frame_scroll * 15);
 
                 self.scroll_offs = std.math.clamp(
@@ -132,7 +131,8 @@ pub fn ScrollView(comptime ActionType: type) type {
                 );
             }
 
-            return self.layout.setInputState(self.layoutBounds(bounds), container_bounds, input_state);
+            const widget_bounds = self.layoutBounds(bounds);
+            return self.layout.setInputState(widget_bounds, widget_bounds.calcIntersection(input_bounds), input_state);
         }
 
         fn render(ctx: ?*anyopaque, bounds: PixelBBox, window_bounds: PixelBBox) void {

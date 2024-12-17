@@ -13,7 +13,7 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
     ret.input_state = gui.InputState{};
     errdefer ret.input_state.deinit(alloc);
 
-    const font_size = 11.0;
+    const font_size = 20.0;
     ret.text_renderer = try sphtext.TextRenderer.init(alloc, font_size);
     errdefer ret.text_renderer.deinit(alloc);
 
@@ -28,7 +28,7 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
     ret.layout_pad = @intFromFloat(unit / 2);
 
     const widget_width: u31 = @intFromFloat(unit * 8);
-    const button_height: u31 = @intFromFloat(unit * 2);
+    const button_height: u31 = @intFromFloat(unit * 1.4);
     const text_wrapped_height: u31 = @intFromFloat(unit * 1.3);
     const widget_text_padding: u31 = @intFromFloat(unit / 5);
     const corner_radius: f32 = unit / 5;

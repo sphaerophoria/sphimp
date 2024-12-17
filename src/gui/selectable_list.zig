@@ -150,7 +150,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             const no_action = gui.InputResponse(ActionType){
@@ -164,15 +164,15 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
 
             var label_bounds_it = LabelBoundsIt.init(widget_bounds, &self.shared.style, self.item_labels.items);
             while (label_bounds_it.next()) |item| {
-                const clickable_bounds = item.full_bounds.calcIntersection(container_bounds);
-                if (self.debounce_state == .released and clickable_bounds.containsOptMousePos(input_state.mouse_down_location)) {
+                const item_input_bounds = item.full_bounds.calcIntersection(input_bounds);
+                if (self.debounce_state == .released and item_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                     ret = .{
                         .wants_focus = false,
                         .action = generateAction(ActionType, &self.action_generator, item.idx),
                     };
                     self.debounce_state = .clicked;
                     click_idx = item.idx;
-                } else if (clickable_bounds.containsMousePos(input_state.mouse_pos)) {
+                } else if (item_input_bounds.containsMousePos(input_state.mouse_pos)) {
                     hover_idx = item.idx;
                 }
             }

@@ -7,7 +7,6 @@ const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
-
 pub fn EvenVertLayout(comptime ActionType: type) type {
     return struct {
         items: std.ArrayListUnmanaged(Widget(ActionType)) = .{},
@@ -83,7 +82,7 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret = gui.InputResponse(ActionType) {
@@ -93,13 +92,16 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
 
             for (self.items.items, 0..) |item, i| {
                 const child_bounds = childBounds(widget_bounds, item.getSize(), i, self.items.items.len);
-                const child_container_bounds = PixelBBox {
+                const frame_area = PixelBBox {
                     .top = child_bounds.top,
-                    .left = container_bounds.left,
-                    .right = container_bounds.right,
                     .bottom = child_bounds.top + @as(i32, @intCast(self.container_size.height / self.items.items.len)),
+                    .left = widget_bounds.left,
+                    .right = widget_bounds.right,
                 };
-                const response = item.setInputState(child_bounds, child_container_bounds.calcIntersection(container_bounds), input_state);
+
+                const input_area = frame_area.calcIntersection(child_bounds).calcIntersection(input_bounds);
+
+                const response = item.setInputState(child_bounds, input_area, input_state);
 
                 if (response.wants_focus) {
                     ret.wants_focus = true;

@@ -110,14 +110,14 @@ pub fn build(b: *std.Build) !void {
     builder.addGuiDependencies(exe);
     try builder.installAndCheck(exe);
 
-    //const gui_demo = builder.addExecutable(
-    //    "gui_demo",
-    //    "src/gui/demo.zig",
-    //);
-    //gui_demo.linkSystemLibrary("glfw");
-    //builder.addAppDependencies(gui_demo);
-    //gui_demo.root_module.addImport("sphui", builder.sphui);
-    //try builder.installAndCheck(gui_demo);
+    const gui_demo = builder.addExecutable(
+        "gui_demo",
+        "src/gui/demo.zig",
+    );
+    gui_demo.linkSystemLibrary("glfw");
+    builder.addAppDependencies(gui_demo);
+    gui_demo.root_module.addImport("sphui", builder.sphui);
+    try builder.installAndCheck(gui_demo);
 
     const lint_exe = builder.addExecutable(
         "lint",

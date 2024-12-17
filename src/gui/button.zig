@@ -123,15 +123,13 @@ pub fn Button(comptime ActionType: type) type {
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
             var ret: ?ActionType = null;
 
-            const clickable_bounds = bounds.calcIntersection(container_bounds);
-
-            const mouse_down_in_box = clickable_bounds.containsOptMousePos(input_state.mouse_down_location);
-            const cursor_in_box = clickable_bounds.containsMousePos(input_state.mouse_pos);
+            const mouse_down_in_box = input_bounds.containsOptMousePos(input_state.mouse_down_location);
+            const cursor_in_box = input_bounds.containsMousePos(input_state.mouse_pos);
 
             if (mouse_down_in_box and cursor_in_box) {
                 self.state = .clicked;

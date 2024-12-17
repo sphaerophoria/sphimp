@@ -476,7 +476,7 @@ pub fn main() !void {
     var widget_bounds = gui.PixelBBox {
         .top = 0,
         .left = 0,
-        .right = window_width / 3,
+        .right = window_width / 2,
         .bottom = window_height,
     };
     const object_list_background = try default_gui.makeRect(
