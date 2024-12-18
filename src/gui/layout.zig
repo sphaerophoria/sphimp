@@ -12,6 +12,16 @@ const Cursor = struct {
     x: u31 = 0,
     y: u31 = 0,
 
+    direction: enum {
+        vertical,
+        horizontal,
+    } = .vertical,
+
+    fn reset(self: *Cursor) void {
+        self.x = 0;
+        self.y = 0;
+    }
+
     fn apply(self: *Cursor, size: PixelSize, padding: u31) PixelBBox {
         const bounds = PixelBBox{
             .left = self.x,
@@ -20,7 +30,11 @@ const Cursor = struct {
             .bottom = self.y + size.height,
         };
 
-        self.y += size.height + padding;
+        switch (self.direction) {
+            .vertical => self.y += size.height + padding,
+            .horizontal => self.x += size.width + padding,
+        }
+
         return bounds;
     }
 };
@@ -31,7 +45,8 @@ pub fn Layout(comptime ActionType: type) type {
         items: std.ArrayListUnmanaged(LayoutItem),
         item_pad: u31,
         focused_id: ?usize,
-        max_width: u31,
+        // FIXME: Only store non-layout dimension
+        max_item_size: PixelSize,
 
         const LayoutItem = struct {
             widget: Widget(ActionType),
@@ -55,7 +70,10 @@ pub fn Layout(comptime ActionType: type) type {
                 .items = .{},
                 .item_pad = item_pad,
                 .focused_id = null,
-                .max_width = 0,
+                .max_item_size = .{
+                    .width = 0,
+                    .height = 0,
+                },
             };
             return layout;
         }
@@ -74,6 +92,12 @@ pub fn Layout(comptime ActionType: type) type {
             }
             self.items.deinit(alloc);
             self.items = .{};
+            self.cursor.reset();
+            self.focused_id = null;
+            self.max_item_size = .{
+                .width = 0,
+                .height = 0,
+            };
         }
 
         fn widgetDeinit(ctx: ?*anyopaque, alloc: Allocator) void {
@@ -87,7 +111,13 @@ pub fn Layout(comptime ActionType: type) type {
             const bounds = self.cursor.apply(size, self.item_pad);
 
             try self.items.append(alloc, .{ .bounds = bounds, .widget = widget });
-            self.max_width = @max(self.max_width, bounds.calcWidth());
+
+            const width = @max(self.max_item_size.width, bounds.calcWidth());
+            const height = @max(self.max_item_size.height, bounds.calcHeight());
+            self.max_item_size = .{
+                .width = width,
+                .height = height,
+            };
         }
 
         pub fn asWidget(self: *Self) Widget(ActionType) {
@@ -99,18 +129,23 @@ pub fn Layout(comptime ActionType: type) type {
 
         pub fn update(ctx: ?*anyopaque, container_size: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.cursor = .{};
+            self.cursor.reset();
 
             var max_width: u31 = 0;
+            var max_height: u31 = 0;
 
             for (self.items.items) |*item| {
                 try item.widget.update(self.availableSize(container_size));
                 const widget_size = item.widget.getSize();
                 item.bounds = self.cursor.apply(widget_size, self.item_pad);
                 max_width = @max(max_width, widget_size.width);
+                max_height = @max(max_height, widget_size.height);
             }
 
-            self.max_width = max_width;
+            self.max_item_size = .{
+                .width = max_width,
+                .height = max_height,
+            };
         }
 
         pub fn availableSize(self: *Self, container_size: PixelSize) PixelSize {
@@ -180,10 +215,20 @@ pub fn Layout(comptime ActionType: type) type {
 
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            return PixelSize{
-                .width = self.max_width,
-                .height = self.cursor.y,
-            };
+            switch (self.cursor.direction) {
+                .horizontal => {
+                    return .{
+                        .width = self.cursor.x,
+                        .height = self.max_item_size.height,
+                    };
+                },
+                .vertical => {
+                    return .{
+                        .width = self.max_item_size.width,
+                        .height = self.cursor.y,
+                    };
+                },
+            }
         }
 
         fn setFocused(ctx: ?*anyopaque, focused: bool) void {

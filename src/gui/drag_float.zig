@@ -23,6 +23,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
     return struct {
         val_retriever: ValRetriever,
         label: Widget(ActionType),
+        speed: f32,
         drag_generator: ActionGenerator,
         style: *const DragFloatStyle,
         squircle_renderer: *const SquircleRenderer,
@@ -53,6 +54,12 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
         };
 
         pub fn init(alloc: Allocator, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+            return initWithSpeed(alloc, 0.01, val_retriever, on_drag, style, label_state, squircle_renderer);
+        }
+
+        // FIXME: Merge with above init, everyone should pick a speed
+        pub fn initWithSpeed(alloc: Allocator, speed: f32, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+
             const label = try gui.label.makeLabel(
                 ActionType,
                 alloc,
@@ -70,6 +77,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
                 .drag_generator = on_drag,
                 .style = style,
                 .squircle_renderer = squircle_renderer,
+                .speed = speed,
             };
 
             errdefer label.deinit(alloc);
@@ -131,7 +139,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
                     const offs = input_state.mouse_pos.x - down_loc.x;
 
                     const start_val = self.state.dragging;
-                    ret = generateAction(ActionType, &self.drag_generator, start_val + offs * 0.01);
+                    ret = generateAction(ActionType, &self.drag_generator, start_val + offs * self.speed);
                 }
             } else if (input_bounds.containsMousePos(input_state.mouse_pos)) {
                 self.state = .hovered;
@@ -158,6 +166,27 @@ pub fn makeWidget(
 ) !Widget(ActionType) {
     return DragFloat(ActionType, @TypeOf(val_retriever), @TypeOf(on_drag)).init(
         alloc,
+        val_retriever,
+        on_drag,
+        style,
+        label_state,
+        squircle_renderer,
+    );
+}
+
+pub fn makeWidgetWithSpeed(
+    comptime ActionType: type,
+    alloc: Allocator,
+    speed: f32,
+    val_retriever: anytype,
+    on_drag: anytype,
+    style: *const DragFloatStyle,
+    label_state: *const gui.gui_text.SharedState,
+    squircle_renderer: *const SquircleRenderer,
+) !Widget(ActionType) {
+    return DragFloat(ActionType, @TypeOf(val_retriever), @TypeOf(on_drag)).initWithSpeed(
+        alloc,
+        speed,
         val_retriever,
         on_drag,
         style,
@@ -211,5 +240,5 @@ fn getVal(val_retreiver: anytype) f32 {
         else => {},
     }
 
-    @compileError("val_retreiver must be a f32 or a struct with a getVal() method that returns an f32. Instead it is " ++ T);
+    @compileError("val_retreiver must be a f32 or a struct with a getVal() method that returns an f32. Instead it is " ++ @typeName(T));
 }

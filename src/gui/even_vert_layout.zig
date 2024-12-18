@@ -10,8 +10,10 @@ const InputState = gui.InputState;
 pub fn EvenVertLayout(comptime ActionType: type) type {
     return struct {
         items: std.ArrayListUnmanaged(Widget(ActionType)) = .{},
+        // FIXME: width redundant
         container_size: PixelSize = .{ .width = 0, .height = 0 },
         focused_id: ?usize = null,
+        width: u31,
 
         const Self = @This();
 
@@ -71,10 +73,13 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
 
         fn update(ctx: ?*anyopaque, available_size: PixelSize) anyerror!void {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            self.container_size = available_size;
+            self.container_size = .{
+                .width = self.width,
+                .height = available_size.height,
+            };
 
             const child_size = PixelSize {
-                .width = available_size.width,
+                .width = self.width,
                 .height = @intCast(available_size.height / self.items.items.len),
             };
             for (self.items.items) |item| {

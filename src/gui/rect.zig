@@ -58,8 +58,9 @@ pub fn Rect(comptime ActionType: type) type {
 
         fn update(ctx: ?*anyopaque, available_size: PixelSize) !void  {
             const self: *Self = @ptrCast(@alignCast(ctx));
+            // FIXME: Hack
             if (self.fill_parent) {
-                self.size = available_size;
+                self.size.height = available_size.height;
             }
         }
 

@@ -303,6 +303,32 @@ const UiAction = union(enum) {
     create_drawing,
     create_text,
     create_shader: ShaderId,
+    delete_selected_object,
+    edit_selected_object_name: struct {
+        notifier: gui.textbox.TextboxNotifier,
+        pos: usize,
+        items: []const gui.KeyEvent,
+    },
+    update_composition_width: f32,
+    update_composition_height: f32,
+
+    fn makeEditName(notifier: gui.textbox.TextboxNotifier, pos: usize, items: []const gui.KeyEvent) UiAction {
+        return .{
+            .edit_selected_object_name = .{
+                .notifier = notifier,
+                .pos = pos,
+                .items = items,
+            },
+        };
+    }
+
+    fn makeUpdateCompositionWidth(val: f32) UiAction {
+        return .{ .update_composition_width = val};
+    }
+
+    fn makeUpdateCompositionHeight(val: f32) UiAction {
+        return .{ .update_composition_height = val};
+    }
 };
 
 const ObjectListRetriever = struct {
@@ -448,6 +474,256 @@ fn makeCreateObject(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction
     return try default_gui.makeScrollView(layout.asWidget());
 }
 
+const CurrentObjectNameRetriever = struct {
+    app: *App,
+
+    pub fn getText(self: *CurrentObjectNameRetriever) []const u8 {
+        return self.app.objects.get(self.app.input_state.selected_object).name;
+    }
+};
+
+
+const CurrentObjectWidthRetriever = struct {
+    app: *App,
+    buf: [16]u8 = undefined,
+
+    pub fn getText(self: *CurrentObjectWidthRetriever) []const u8 {
+        return std.fmt.bufPrint(&self.buf, "Width: {d}", .{
+            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[0],
+        }) catch "Width: undefined";
+    }
+};
+
+const CurrentObjectHeightRetriever = struct {
+    app: *App,
+    buf: [17]u8 = undefined,
+
+    pub fn getText(self: *CurrentObjectHeightRetriever) []const u8 {
+        return std.fmt.bufPrint(&self.buf, "Height: {d}", .{
+            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[1],
+        }) catch "Height: undefined";
+    }
+};
+
+pub fn LabelTextBuf(comptime size: usize) type {
+    return struct {
+        buf: [size]u8,
+        text_len: usize,
+
+        pub fn getText(self: *const @This()) []const u8 {
+            return self.buf[0..self.text_len];
+        }
+    };
+}
+
+fn labelTextBuf(comptime fmt: []const u8, args: anytype, comptime max_len: usize) LabelTextBuf(max_len) {
+    var buf: [max_len]u8 = undefined;
+    const slice = std.fmt.bufPrint(&buf, fmt, args) catch buf[0..max_len];
+    std.debug.print("got slice: {s}\n" ,.{slice});
+    return .{
+        .buf = buf,
+        .text_len = slice.len,
+    };
+}
+
+
+const CurrentObjectWidthRetrieverf32 = struct {
+    app: *App,
+
+    pub fn getVal(self: *CurrentObjectWidthRetrieverf32) f32 {
+        return @floatFromInt(self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[0]);
+    }
+};
+
+const CurrentObjectHeightRetrieverf32 = struct {
+    app: *App,
+
+    pub fn getVal(self: *CurrentObjectHeightRetrieverf32) f32 {
+        return @floatFromInt(self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[1]);
+    }
+};
+
+fn regenerateSpecificObjectProperties(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), layout: *gui.layout.Layout(UiAction), wrap_width: u31) !void {
+
+    layout.reset(default_gui.alloc);
+
+    const selected_obj = app.objects.get(app.input_state.selected_object);
+    switch (selected_obj.data) {
+        .filesystem => |fs_obj| {
+            const object_type = try default_gui.makeLabel("Filesystem object", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
+
+            const source_label = try default_gui.makeLabel(labelTextBuf("Source: {s}", .{fs_obj.source}, 1024), wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, source_label);
+        },
+        .generated_mask => {
+            const object_type = try default_gui.makeLabel("Generated mask", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
+        },
+        .composition => {
+            const object_type = try default_gui.makeLabel("Composition", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
+
+            const width_label = try default_gui.makeLabel("Width", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, width_label);
+
+            const width_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectWidthRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionWidth);
+            try layout.pushOrDeinitWidget(default_gui.alloc, width_dragger);
+
+            const height_label = try default_gui.makeLabel("Height", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, height_label);
+
+            const height_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectHeightRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionHeight);
+            try layout.pushOrDeinitWidget(default_gui.alloc, height_dragger);
+        },
+        //.shader: ShaderObject,
+        //.path: PathObject,
+        //.generated_mask: GeneratedMaskObject,
+        //.drawing: DrawingObject,
+        //.text: TextObject,
+        else => {},
+    }
+
+}
+
+fn makeObjectProperties(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31, specific_properties: gui.Widget(UiAction)) !gui.Widget(UiAction) {
+    // FIXME: Errdefer specific properties?
+
+    const layout = try default_gui.makeLayout();
+    errdefer layout.deinit(default_gui.alloc);
+
+    const layout_name = try default_gui.makeLabel("Object properties", wrap_width);
+    try layout.pushOrDeinitWidget(default_gui.alloc, layout_name);
+
+    // Name: [name.txt]
+    {
+        const name_edit = try default_gui.makeLayout();
+        try layout.pushOrDeinitWidget(default_gui.alloc, name_edit.asWidget());
+
+        name_edit.cursor.direction = .horizontal;
+
+        const name_edit_label = try default_gui.makeLabel("Name: ", wrap_width);
+        try name_edit.pushOrDeinitWidget(default_gui.alloc, name_edit_label);
+
+        const name_box = try default_gui.makeTextbox(CurrentObjectNameRetriever { .app = app }, &UiAction.makeEditName);
+        try name_edit.pushOrDeinitWidget(default_gui.alloc, name_box);
+    }
+
+    const delete_button = try default_gui.makeButton("Delete", .delete_selected_object);
+    try layout.pushOrDeinitWidget(default_gui.alloc, delete_button);
+
+    const width = try default_gui.makeLabel(CurrentObjectWidthRetriever { .app = app }, wrap_width);
+    try layout.pushOrDeinitWidget(default_gui.alloc, width);
+
+    const height = try default_gui.makeLabel(CurrentObjectHeightRetriever { .app = app }, wrap_width);
+    try layout.pushOrDeinitWidget(default_gui.alloc, height);
+
+    try layout.pushOrDeinitWidget(default_gui.alloc, specific_properties);
+
+    return layout.asWidget();
+}
+
+const AppWidget = struct {
+    size: gui.PixelSize,
+    app: *App,
+
+    const widget_vtable = gui.Widget(UiAction).VTable {
+            .deinit = AppWidget.deinit,
+            .render = AppWidget.render,
+            .getSize = AppWidget.getSize,
+            .update = AppWidget.update,
+            .setInputState = AppWidget.setInputState,
+    };
+
+    fn init(alloc: Allocator, app: *App, size: gui.PixelSize) !gui.Widget(UiAction) {
+        const ctx = try alloc.create(AppWidget);
+        ctx.* = .{
+            .app = app,
+            .size = size,
+        };
+        return .{
+            .vtable = &widget_vtable,
+            .ctx = ctx,
+        };
+    }
+
+    fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
+        _ = ctx;
+        _ = alloc;
+    }
+
+    fn render(ctx: ?*anyopaque, widget_bounds: gui.PixelBBox, window_bounds: gui.PixelBBox) void {
+        const self: *AppWidget = @ptrCast(@alignCast(ctx));
+        const viewport = sphrender.TemporaryViewport.init();
+        defer viewport.reset();
+        viewport.setViewportOffset(widget_bounds.left, window_bounds.calcHeight() - widget_bounds.bottom, widget_bounds.calcWidth(), widget_bounds.calcHeight());
+
+        const scissor = sphrender.TemporaryScissor.init();
+        defer scissor.reset();
+        scissor.set(widget_bounds.left, window_bounds.calcHeight() - widget_bounds.bottom, widget_bounds.calcWidth(), widget_bounds.calcHeight());
+
+
+        self.app.render() catch return;
+
+    }
+
+    fn getSize(ctx: ?*anyopaque) gui.PixelSize {
+        const self: *AppWidget = @ptrCast(@alignCast(ctx));
+        return self.size;
+    }
+
+    fn update(ctx: ?*anyopaque, available_size: gui.PixelSize) anyerror!void {
+        const self: *AppWidget = @ptrCast(@alignCast(ctx));
+        self.size = available_size;
+        self.app.view_state.window_width = available_size.width;
+        self.app.view_state.window_height = available_size.height;
+    }
+
+    fn setInputState(ctx: ?*anyopaque, widget_bounds: gui.PixelBBox, input_bounds: gui.PixelBBox, input_state: gui.InputState) gui.InputResponse(UiAction) {
+        const self: *AppWidget = @ptrCast(@alignCast(ctx));
+
+        const no_action = gui.InputResponse(UiAction) {
+            .wants_focus = false,
+            .action = null,
+        };
+
+        self.trySetInputState(widget_bounds, input_bounds, input_state) catch |e| {
+            logError("input handling failed", e, @errorReturnTrace());
+        };
+
+        return no_action;
+    }
+
+    fn trySetInputState(self: *AppWidget, widget_bounds: gui.PixelBBox, input_bounds: gui.PixelBBox, input_state: gui.InputState) !void {
+        if (input_state.mouse_middle_released) self.app.setMiddleUp();
+        if (input_state.mouse_released) self.app.setMouseUp();
+
+        try self.app.setMousePos(
+            input_state.mouse_pos.x - @as(f32, @floatFromInt(widget_bounds.left)),
+            input_state.mouse_pos.y - @as(f32, @floatFromInt(widget_bounds.top)),
+        );
+
+        if (!input_bounds.containsMousePos(input_state.mouse_pos)) {
+            return;
+        }
+
+        if (input_state.mouse_right_pressed) try self.app.clickRightMouse();
+        if (input_state.mouse_middle_pressed) self.app.setMiddleDown();
+        if (input_state.mouse_pressed) try self.app.setMouseDown();
+
+        for (input_state.frame_keys.items) |key| {
+            if (key.key == .ascii) {
+                try self.app.setKeyDown(key.key.ascii, key.ctrl);
+            }
+        }
+
+        self.app.scroll(input_state.frame_scroll);
+    }
+
+    //setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
+
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -457,8 +733,8 @@ pub fn main() !void {
     var args = try Args.parse(alloc);
     defer args.deinit(alloc);
 
-    const window_width = 640;
-    const window_height = 480;
+    const window_width = 1024;
+    const window_height = 600;
 
     var glfw = Glfw{};
 
@@ -470,37 +746,6 @@ pub fn main() !void {
     defer app.deinit();
 
     const background_shader_id = try app.addShaderFromFragmentSource("constant color", background_fragment_shader);
-
-    const default_gui = try gui.default_gui.defaultGui(UiAction, alloc);
-    defer default_gui.deinit();
-
-    const object_list_stack = try default_gui.makeStack();
-    var widget_bounds = gui.PixelBBox {
-        .top = 0,
-        .left = 0,
-        .right = window_width / 2,
-        .bottom = window_height,
-    };
-    const object_list_background = try default_gui.makeRect(
-        // FIXME: Rect should just fill space
-        .{
-            .width = @intCast(widget_bounds.right),
-            .height = @intCast(widget_bounds.bottom),
-        },
-        gui.default_gui.GlobalStyle.background_color,
-        true,
-    );
-    try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, object_list_background, .{ .offset =  .{ .x_offs = 0, .y_offs = 0 }});
-
-    const toplevel_layout = try default_gui.makeEvenVertLayout();
-
-    try toplevel_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjList(&app, default_gui, window_width / 3));
-    try toplevel_layout.pushOrDeinitWidget(default_gui.alloc, try makeCreateObject(&app, default_gui, window_width / 3));
-
-    try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, toplevel_layout.asWidget(), .centered);
-
-    try default_gui.setRootWidgetOrDeinit(object_list_stack.asWidget());
-
 
     switch (args.action) {
         .load => |s| {
@@ -531,10 +776,57 @@ pub fn main() !void {
         },
     }
 
+    const default_gui = try gui.default_gui.defaultGui(UiAction, alloc);
+    defer default_gui.deinit();
+
+    const object_list_stack = try default_gui.makeStack();
+    const sidebar_width = window_width / 3;
+    var widget_bounds = gui.PixelBBox {
+        .top = 0,
+        .left = 0,
+        .right = sidebar_width,
+        .bottom = window_height,
+    };
+    const object_list_background = try default_gui.makeRect(
+        // FIXME: Rect should just fill space
+        .{
+            .width = @intCast(widget_bounds.right),
+            .height = @intCast(widget_bounds.bottom),
+        },
+        gui.default_gui.GlobalStyle.background_color,
+        true,
+    );
+    try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, object_list_background, .{ .offset =  .{ .x_offs = 0, .y_offs = 0 }});
+
+    const toplevel_layout = try default_gui.makeLayout();
+    // FIXME: errdefer
+
+    const sidebar_layout = try default_gui.makeEvenVertLayout(widget_bounds.calcWidth());
+    try toplevel_layout.pushOrDeinitWidget(default_gui.alloc, object_list_stack.asWidget());
+
+    // FIXME: Deinit order shennanigans
+    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjList(&app, default_gui, sidebar_width));
+    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeCreateObject(&app, default_gui, sidebar_width));
+
+    const specific_object_properties = try default_gui.makeLayout();
+    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjectProperties(&app, default_gui, sidebar_width, specific_object_properties.asWidget()));
+    try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
+
+    try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, sidebar_layout.asWidget(), .centered);
+
+    const app_widget = try AppWidget.init(alloc, &app, .{.width = window_width, .height = window_height });
+
+    toplevel_layout.cursor.direction = .horizontal;
+    toplevel_layout.item_pad = 0;
+    try toplevel_layout.pushOrDeinitWidget(default_gui.alloc, app_widget);
+
+    try default_gui.setRootWidgetOrDeinit(toplevel_layout.asWidget());
+
+
     while (!glfw.closed()) {
         const width, const height = glfw.getWindowSize();
-        app.view_state.window_width = width;
-        app.view_state.window_height = height;
+
+        sphrender.gl.glViewport(0, 0, @intCast(width), @intCast(height));
 
         widget_bounds.bottom = @intCast(height);
         //if (try imgui.renderObjectProperties(app.input_state.selected_object, &app.objects, app.shaders, app.brushes, app.fonts)) |action| {
@@ -640,38 +932,17 @@ pub fn main() !void {
             .height = @intCast(height),
         };
 
-        //const glfw_mouse = true;
-        //var last_mouse: ?gui.MousePos = null;
-        //while (glfw.queue.readItem()) |action| {
-        //    switch (action) {
-        //        .key_down => |key| {
-        //            if (key.key == .ascii) {
-        //                try app.setKeyDown(key.key.ascii, key.ctrl);
-        //            }
-        //        },
-        //        .mouse_move => |p| if (glfw_mouse) {
-        //            last_mouse = p;
-        //        },
-        //        .mouse_up => if (glfw_mouse) app.setMouseUp(),
-        //        .mouse_down => if (glfw_mouse) try app.setMouseDown(),
-        //        .middle_up => if (glfw_mouse) app.setMiddleUp(),
-        //        .middle_down => if (glfw_mouse) app.setMiddleDown(),
-        //        .right_click => if (glfw_mouse) try app.clickRightMouse(),
-        //        .scroll => |amount| if (glfw_mouse) {
-        //            app.scroll(amount);
-        //        },
-        //    }
-        //}
-
-        //if (last_mouse) |p| {
-        //    try app.setMousePos(p.x, p.y);
-        //}
-
-        try app.render();
-        if (try default_gui.step(widget_bounds, window_size, &glfw.queue)) |action| {
+        const window_bounds = gui.PixelBBox {
+            .left = 0,
+            .top = 0,
+            .right = window_size.width,
+            .bottom = window_size.height,
+        };
+        if (try default_gui.step(window_bounds, window_size, &glfw.queue)) |action| {
             switch (action) {
                 .update_selected_object => |id| {
                     app.setSelectedObject(id);
+                    try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
                 },
                 .create_path => {
                     _ = app.createPath() catch |e| {
@@ -697,6 +968,33 @@ pub fn main() !void {
                 .create_shader => |id| {
                     _ = app.addShaderObject("new shader", id) catch |e| {
                         logError("failed to create shader", e, @errorReturnTrace());
+                    };
+                },
+                .delete_selected_object => {
+                    app.deleteSelectedObject() catch |e| {
+                        logError("failed to delete object", e, @errorReturnTrace());
+                    };
+
+                },
+                .edit_selected_object_name => |params| {
+                    const name = app.objects.get(app.input_state.selected_object).name;
+                    var edit_name = std.ArrayListUnmanaged(u8){};
+                    defer edit_name.deinit(alloc);
+
+                    // FIXME: Should we crash on failure?
+                    try edit_name.appendSlice(alloc, name);
+                    try gui.textbox.executeTextEditOnArrayList(alloc, &edit_name, params.pos, params.notifier, params.items);
+
+                    try app.updateSelectedObjectName(try edit_name.toOwnedSlice(alloc));
+                },
+                .update_composition_width => |new_width| {
+                    app.updateSelectedWidth(new_width) catch |e| {
+                        logError("Failed to update selected object width", e, @errorReturnTrace());
+                    };
+                },
+                .update_composition_height => |new_height| {
+                    app.updateSelectedHeight(new_height) catch |e| {
+                        logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
             }

@@ -254,6 +254,43 @@ pub fn makeTextbox(comptime ActionType: type, alloc: Allocator, text_retreiver: 
     };
 }
 
+pub fn executeTextEditOnArrayList(alloc: Allocator, text_input: *std.ArrayListUnmanaged(u8), insert_idx: usize, notifier: gui.textbox.TextboxNotifier, events: []const gui.KeyEvent) !void {
+    var num_inserted: isize = 0;
+
+    for (events) |ev| {
+        const fixed_insert_idx: usize =
+            // FIXME: Cast hell
+            @intCast(std.math.clamp(@as(isize, @intCast(insert_idx)) + num_inserted, 0, @as(isize, @intCast(text_input.items.len))));
+
+        switch (ev.key) {
+            .ascii => |char| {
+                try text_input.insert(alloc, fixed_insert_idx, char);
+                num_inserted += 1;
+                try notifier.notify(.{ .insert_char = fixed_insert_idx });
+            },
+            .backspace => {
+                if (fixed_insert_idx > 0) {
+                    const delete_idx = fixed_insert_idx - 1;
+                    if (delete_idx < text_input.items.len) {
+                        _ = text_input.orderedRemove(delete_idx);
+                        num_inserted -= 1;
+                        try notifier.notify(.{ .delete_char = delete_idx });
+                    }
+                }
+            },
+            .delete => {
+                const delete_idx = fixed_insert_idx;
+                if (delete_idx < text_input.items.len) {
+                    _ = text_input.orderedRemove(delete_idx);
+                    num_inserted -= 1;
+                    try notifier.notify(.{ .delete_char = delete_idx });
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 fn makeCursorBounds(style: TextboxStyle, cursor_left: i32, widget_bounds: PixelBBox) PixelBBox {
     const cursor_center: i32 = @intFromFloat(widget_bounds.cy());
     const cursor_top = cursor_center - style.cursor_height / 2;

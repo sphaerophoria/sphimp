@@ -254,6 +254,19 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
+        pub fn makeDragFloatWithSpeed(self: *Self, speed: f32, retriever: anytype, action_gen: anytype) !gui.Widget(ActionType) {
+            return gui.drag_float.makeWidgetWithSpeed(
+                ActionType,
+                self.alloc,
+                speed,
+                retriever,
+                action_gen,
+                &self.drag_style,
+                &self.guitext_state,
+                &self.squircle_renderer,
+            );
+        }
+
         pub fn makeLayout(self: *Self) !*gui.layout.Layout(ActionType) {
             return gui.layout.Layout(ActionType).init(self.alloc, self.layout_pad);
         }
@@ -262,9 +275,11 @@ pub fn DefaultGui(comptime ActionType: type) type {
             return gui.scroll_view.ScrollView(ActionType).init(self.alloc, inner, &self.scroll_style, &self.squircle_renderer);
         }
 
-        pub fn makeEvenVertLayout(self: *Self) !*gui.even_vert_layout.EvenVertLayout(ActionType) {
+        pub fn makeEvenVertLayout(self: *Self, width: u31) !*gui.even_vert_layout.EvenVertLayout(ActionType) {
             const ret = try self.alloc.create(gui.even_vert_layout.EvenVertLayout(ActionType));
-            ret.* = .{};
+            ret.* = .{
+                .width = width,
+            };
             return ret;
         }
 

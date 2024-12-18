@@ -224,7 +224,7 @@ pub fn render(self: *App) !void {
     );
     defer frame_renderer.deinit();
 
-    try frame_renderer.render(self.input_state.selected_object, self.view_state.objectToClipTransform(self.selectedDims()), self.view_state.window_width, self.view_state.window_height);
+    try frame_renderer.render(self.input_state.selected_object, self.view_state.objectToClipTransform(self.selectedDims()));
 }
 
 pub fn setKeyDown(self: *App, key: u8, ctrl: bool) !void {
@@ -363,11 +363,21 @@ pub fn deleteSelectedObject(self: *App) !void {
     }
 }
 
-pub fn updateSelectedDims(self: *App, dims: PixelDims) !void {
+pub fn updateSelectedWidth(self: *App, width: f32) !void {
     const obj = self.selectedObject();
     switch (obj.data) {
         .composition => |*c| {
-            c.dims = dims;
+            c.dims[0] = @intFromFloat(width);
+        },
+        else => return error.CannotUpdateDims,
+    }
+}
+
+pub fn updateSelectedHeight(self: *App, height: f32) !void {
+    const obj = self.selectedObject();
+    switch (obj.data) {
+        .composition => |*c| {
+            c.dims[1] = @intFromFloat(height);
         },
         else => return error.CannotUpdateDims,
     }

@@ -604,6 +604,7 @@ pub fn main() !void {
     }
 }
 
+// FIXME: duped with textbox
 fn editText(alloc: Allocator, text_input: *std.ArrayListUnmanaged(u8), insert_idx: usize, notifier: gui.textbox.TextboxNotifier, events: []const gui.KeyEvent) !void {
     var num_inserted: isize = 0;
 

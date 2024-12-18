@@ -48,6 +48,13 @@ pub const MousePos = struct { x: f32, y: f32 };
 pub const InputState = struct {
     mouse_pos: MousePos = .{ .x = 0, .y = 0 },
     mouse_down_location: ?MousePos = null,
+
+    mouse_right_pressed: bool = false,
+
+    mouse_middle_pressed: bool = false,
+    mouse_middle_released: bool = false,
+
+    mouse_pressed: bool = false,
     mouse_released: bool = false,
     frame_scroll: f32 = 0,
     frame_keys: std.ArrayListUnmanaged(KeyEvent) = .{},
@@ -61,6 +68,10 @@ pub const InputState = struct {
             self.mouse_down_location = null;
             self.mouse_released = false;
         }
+        self.mouse_right_pressed = false;
+        self.mouse_middle_pressed = false;
+        self.mouse_middle_released = false;
+        self.mouse_pressed = false;
         self.frame_keys.clearRetainingCapacity();
         self.frame_scroll = 0;
     }
@@ -72,6 +83,7 @@ pub const InputState = struct {
             },
             .mouse_down => {
                 self.mouse_down_location = self.mouse_pos;
+                self.mouse_pressed = true;
             },
             .mouse_up => {
                 self.mouse_released = true;
@@ -82,7 +94,9 @@ pub const InputState = struct {
             .key_down => |ev| {
                 try self.frame_keys.append(alloc, ev);
             },
-            else => {},
+            .middle_down => self.mouse_middle_pressed = true,
+            .middle_up => self.mouse_middle_released = true,
+            .right_click => self.mouse_right_pressed = true,
         }
     }
 };
