@@ -73,13 +73,13 @@ pub const SharedColorPickerState = struct {
     }
 };
 
-pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+pub fn ColorPicker(comptime Action: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
         alloc: Allocator,
         color_retriever: ColorRetriever,
         color_generator: ColorGenerator,
-        overlay: *PopupLayer(ActionType),
+        overlay: *PopupLayer(Action),
         shared: *const SharedColorPickerState,
 
         pub fn init(
@@ -87,8 +87,8 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             color_retriever: ColorRetriever,
             color_generator: ColorGenerator,
             shared: *const SharedColorPickerState,
-            overlay: *PopupLayer(ActionType),
-        ) !Widget(ActionType) {
+            overlay: *PopupLayer(Action),
+        ) !Widget(Action) {
             const preview = try alloc.create(Self);
             errdefer alloc.destroy(preview);
 
@@ -100,7 +100,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
                 .overlay = overlay,
             };
 
-            const widget_vtable = Widget(ActionType).VTable{
+            const widget_vtable = Widget(Action).VTable{
                 .deinit = Self.deinit,
                 .render = Self.render,
                 .getSize = Self.getSize,
@@ -126,20 +126,20 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             };
         }
 
-        fn generateOverlayWidget(self: Self) !Widget(ActionType) {
-            const layout = try Layout(ActionType).init(self.alloc, self.shared.style.item_pad);
+        fn generateOverlayWidget(self: Self) !Widget(Action) {
+            const layout = try Layout(Action).init(self.alloc, self.shared.style.item_pad);
             errdefer layout.deinit(self.alloc);
 
-            const title = try gui.label.makeLabel(ActionType, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.guitext_state);
+            const title = try gui.label.makeLabel(Action, self.alloc, "Color picker", std.math.maxInt(u31), self.shared.guitext_state);
             try layout.pushOrDeinitWidget(self.alloc, title);
 
-            const hexagon = try ColorHexagon(ActionType, ColorRetriever, ColorGenerator)
+            const hexagon = try ColorHexagon(Action, ColorRetriever, ColorGenerator)
                 .init(self.alloc, self.color_retriever, self.color_generator, self.shared);
 
             const hexagon_widget = hexagon.toWidget();
             try layout.pushOrDeinitWidget(self.alloc, hexagon_widget);
 
-            const widget_gen = WidgetGenerator(ActionType, ColorRetriever, ColorGenerator){
+            const widget_gen = WidgetGenerator(Action, ColorRetriever, ColorGenerator){
                 .alloc = self.alloc,
                 .guitext_state = self.shared.guitext_state,
                 .squircle_renderer = self.shared.squircle_renderer,
@@ -170,8 +170,8 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
         }
 
         const OverlayWidgets = struct {
-            content: Widget(ActionType),
-            background: Widget(ActionType),
+            content: Widget(Action),
+            background: Widget(Action),
         };
 
         fn makeOverlayWidgets(self: *Self) !OverlayWidgets {
@@ -180,7 +180,7 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
 
             const content_size = content_widget.getSize();
 
-            const rect = try gui.rect.Rect(ActionType).init(
+            const rect = try gui.rect.Rect(Action).init(
                 self.alloc,
                 .{
                     .width = content_size.width + self.shared.style.item_pad * 2,
@@ -198,8 +198,8 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             };
         }
 
-        fn makeOverlayStack(self: *Self) !Widget(ActionType) {
-            const stack = try gui.stack.Stack(ActionType).init(self.alloc);
+        fn makeOverlayStack(self: *Self) !Widget(Action) {
+            const stack = try gui.stack.Stack(Action).init(self.alloc);
             errdefer stack.deinit(self.alloc);
 
             const overlay_widgets = try self.makeOverlayWidgets();
@@ -224,9 +224,9 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
             );
         }
 
-        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            const ret = gui.InputResponse(ActionType){
+            const ret = gui.InputResponse(Action){
                 .wants_focus = false,
                 .action = null,
             };
@@ -255,18 +255,18 @@ pub fn ColorPicker(comptime ActionType: type, comptime ColorRetriever: type, com
 }
 
 pub fn makeColorPicker(
-    comptime ActionType: type,
+    comptime Action: type,
     alloc: Allocator,
     color_retriever: anytype,
     color_generator: anytype,
     shared: *const SharedColorPickerState,
-    overlay: *PopupLayer(ActionType),
-) !Widget(ActionType) {
-    return ColorPicker(ActionType, @TypeOf(color_retriever), @TypeOf(color_generator))
+    overlay: *PopupLayer(Action),
+) !Widget(Action) {
+    return ColorPicker(Action, @TypeOf(color_retriever), @TypeOf(color_generator))
         .init(alloc, color_retriever, color_generator, shared, overlay);
 }
 
-fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+fn WidgetGenerator(comptime Action: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         alloc: Allocator,
         guitext_state: *const gui.gui_text.SharedState,
@@ -277,9 +277,9 @@ fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, com
 
         const Self = @This();
 
-        fn makeLabel(self: Self, name: []const u8) !Widget(ActionType) {
+        fn makeLabel(self: Self, name: []const u8) !Widget(Action) {
             return gui.label.makeLabel(
-                ActionType,
+                Action,
                 self.alloc,
                 name,
                 std.math.maxInt(u31),
@@ -287,7 +287,7 @@ fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, com
             );
         }
 
-        fn makeRGBDrag(self: Self, comptime color_field: []const u8) !Widget(ActionType) {
+        fn makeRGBDrag(self: Self, comptime color_field: []const u8) !Widget(Action) {
             const Retriever = struct {
                 color_retriever: ColorRetriever,
 
@@ -303,15 +303,15 @@ fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, com
 
                 const Self = @This();
 
-                pub fn generate(gself: @This(), val: f32) ActionType {
+                pub fn generate(gself: @This(), val: f32) Action {
                     var color = getColor(&gself.color_retriever);
                     @field(color, color_field) = val;
-                    return generateAction(ActionType, &gself.color_generator, color);
+                    return generateAction(Action, &gself.color_generator, color);
                 }
             };
 
             return gui.drag_float.makeWidget(
-                ActionType,
+                Action,
                 self.alloc,
                 Retriever{ .color_retriever = self.retriever },
                 Generator{ .color_retriever = self.retriever, .color_generator = self.generator },
@@ -323,7 +323,7 @@ fn WidgetGenerator(comptime ActionType: type, comptime ColorRetriever: type, com
     };
 }
 
-fn generateAction(comptime ActionType: type, color_generator: anytype, color: Color) ActionType {
+fn generateAction(comptime Action: type, color_generator: anytype, color: Color) Action {
     const Ptr = @TypeOf(color_generator);
     const T = @typeInfo(Ptr).Pointer.child;
 
@@ -362,7 +362,7 @@ fn getColor(color_retriever: anytype) Color {
 }
 
 const hexagon_width_ratio: [2]i32 = .{ 17, 20 };
-fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
+fn ColorHexagon(comptime Action: type, comptime ColorRetriever: type, comptime ColorGenerator: type) type {
     return struct {
         const Self = @This();
         color_retriever: ColorRetriever,
@@ -382,8 +382,8 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             return color_picker;
         }
 
-        fn toWidget(self: *Self) Widget(ActionType) {
-            const widget_vtable = Widget(ActionType).VTable{
+        fn toWidget(self: *Self) Widget(Action) {
+            const widget_vtable = Widget(Action).VTable{
                 .deinit = Self.deinit,
                 .render = Self.render,
                 .getSize = Self.getSize,
@@ -410,7 +410,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
             };
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *@This() = @ptrCast(@alignCast(ctx));
 
             const prev_color = getColor(&self.color_retriever);
@@ -423,7 +423,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
                 const new_color = pixelToRgb(current_lightness, input_state.mouse_pos, split_bounds.hexagon);
                 return .{
                     .wants_focus = false,
-                    .action = generateAction(ActionType, &self.color_generator, new_color),
+                    .action = generateAction(Action, &self.color_generator, new_color),
                 };
             }
 
@@ -454,7 +454,7 @@ fn ColorHexagon(comptime ActionType: type, comptime ColorRetriever: type, compti
 
                 return .{
                     .wants_focus = false,
-                    .action = generateAction(ActionType, &self.color_generator, color),
+                    .action = generateAction(Action, &self.color_generator, color),
                 };
             }
 

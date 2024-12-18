@@ -36,12 +36,12 @@ pub const ButtonStyle = struct {
     desired_height: ?u31 = null,
 };
 
-pub fn Button(comptime ActionType: type) type {
+pub fn Button(comptime Action: type) type {
     return struct {
         size: PixelSize,
-        label: Widget(ActionType),
+        label: Widget(Action),
 
-        click_action: ActionType,
+        click_action: Action,
 
         shared: *const SharedButtonState,
 
@@ -53,7 +53,7 @@ pub fn Button(comptime ActionType: type) type {
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -65,9 +65,9 @@ pub fn Button(comptime ActionType: type) type {
             alloc: Allocator,
             text_retriever: anytype,
             shared: *const SharedButtonState,
-            click_action: ActionType,
-        ) !Widget(ActionType) {
-            const label = try label_mod.makeLabel(ActionType, alloc, text_retriever, std.math.maxInt(u31), shared.text_shared);
+            click_action: Action,
+        ) !Widget(Action) {
+            const label = try label_mod.makeLabel(Action, alloc, text_retriever, std.math.maxInt(u31), shared.text_shared);
             errdefer label.deinit(alloc);
 
             const label_size = label.getSize();
@@ -123,10 +123,10 @@ pub fn Button(comptime ActionType: type) type {
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var ret: ?ActionType = null;
+            var ret: ?Action = null;
 
             const mouse_down_in_box = input_bounds.containsOptMousePos(input_state.mouse_down_location);
             const cursor_in_box = input_bounds.containsMousePos(input_state.mouse_pos);
@@ -169,11 +169,11 @@ pub fn Button(comptime ActionType: type) type {
 }
 
 pub fn makeButton(
-    comptime ActionType: type,
+    comptime Action: type,
     alloc: Allocator,
     text_retriever: anytype,
     shared: *const SharedButtonState,
     click_action: anytype,
-) !Widget(ActionType) {
-    return Button(ActionType).init(alloc, text_retriever, shared, click_action);
+) !Widget(Action) {
+    return Button(Action).init(alloc, text_retriever, shared, click_action);
 }

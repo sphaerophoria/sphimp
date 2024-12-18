@@ -39,7 +39,7 @@ const Cursor = struct {
     }
 };
 
-pub fn Layout(comptime ActionType: type) type {
+pub fn Layout(comptime Action: type) type {
     return struct {
         cursor: Cursor,
         items: std.ArrayListUnmanaged(LayoutItem),
@@ -49,12 +49,12 @@ pub fn Layout(comptime ActionType: type) type {
         max_item_size: PixelSize,
 
         const LayoutItem = struct {
-            widget: Widget(ActionType),
+            widget: Widget(Action),
             bounds: PixelBBox,
         };
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.widgetDeinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -105,7 +105,7 @@ pub fn Layout(comptime ActionType: type) type {
             self.deinit(alloc);
         }
 
-        pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
+        pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(Action)) !void {
             errdefer widget.deinit(alloc);
             const size = widget.getSize();
             const bounds = self.cursor.apply(size, self.item_pad);
@@ -120,7 +120,7 @@ pub fn Layout(comptime ActionType: type) type {
             };
         }
 
-        pub fn asWidget(self: *Self) Widget(ActionType) {
+        pub fn asWidget(self: *Self) Widget(Action) {
             return .{
                 .ctx = self,
                 .vtable = &widget_vtable,
@@ -165,9 +165,9 @@ pub fn Layout(comptime ActionType: type) type {
             };
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
-            var ret = gui.InputResponse(ActionType){
+            var ret = gui.InputResponse(Action){
                 .wants_focus = false,
                 .action = null,
             };

@@ -9,7 +9,7 @@ const InputState = gui.InputState;
 const Color = gui.Color;
 const SquircleRenderer = @import("SquircleRenderer.zig");
 
-pub fn Rect(comptime ActionType: type) type {
+pub fn Rect(comptime Action: type) type {
     return struct {
         size: PixelSize,
         renderer: *const SquircleRenderer,
@@ -18,7 +18,7 @@ pub fn Rect(comptime ActionType: type) type {
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -31,7 +31,7 @@ pub fn Rect(comptime ActionType: type) type {
             color: Color,
             fill_parent: bool,
             renderer: *const SquircleRenderer,
-        ) !Widget(ActionType) {
+        ) !Widget(Action) {
             const rect = try alloc.create(Self);
             rect.* = .{
                 .size = size,

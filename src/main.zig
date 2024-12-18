@@ -648,8 +648,8 @@ const AppWidget = struct {
     }
 
     fn deinit(ctx: ?*anyopaque, alloc: Allocator) void {
-        _ = ctx;
-        _ = alloc;
+        const self: *AppWidget = @ptrCast(@alignCast(ctx));
+        alloc.destroy(self);
     }
 
     fn render(ctx: ?*anyopaque, widget_bounds: gui.PixelBBox, window_bounds: gui.PixelBBox) void {

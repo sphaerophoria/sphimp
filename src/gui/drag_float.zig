@@ -19,10 +19,10 @@ pub const DragFloatStyle = struct {
     corner_radius: f32 = 1.0,
 };
 
-pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptime ActionGenerator: type) type {
+pub fn DragFloat(comptime Action: type, comptime ValRetriever: type, comptime ActionGenerator: type) type {
     return struct {
         val_retriever: ValRetriever,
-        label: Widget(ActionType),
+        label: Widget(Action),
         speed: f32,
         drag_generator: ActionGenerator,
         style: *const DragFloatStyle,
@@ -35,7 +35,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -53,15 +53,15 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
             }
         };
 
-        pub fn init(alloc: Allocator, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+        pub fn init(alloc: Allocator, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(Action) {
             return initWithSpeed(alloc, 0.01, val_retriever, on_drag, style, label_state, squircle_renderer);
         }
 
         // FIXME: Merge with above init, everyone should pick a speed
-        pub fn initWithSpeed(alloc: Allocator, speed: f32, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(ActionType) {
+        pub fn initWithSpeed(alloc: Allocator, speed: f32, val_retriever: ValRetriever, on_drag: ActionGenerator, style: *const DragFloatStyle, label_state: *const gui.gui_text.SharedState, squircle_renderer: *const SquircleRenderer) !Widget(Action) {
 
             const label = try gui.label.makeLabel(
-                ActionType,
+                Action,
                 alloc,
                 LabelAdapter{ .val_retriever = val_retriever },
                 std.math.maxInt(u31),
@@ -125,10 +125,10 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
             });
         }
 
-        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var ret: ?ActionType = null;
+            var ret: ?Action = null;
 
             if (input_state.mouse_down_location) |down_loc| {
                 if (input_bounds.containsMousePos(down_loc)) {
@@ -139,7 +139,7 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
                     const offs = input_state.mouse_pos.x - down_loc.x;
 
                     const start_val = self.state.dragging;
-                    ret = generateAction(ActionType, &self.drag_generator, start_val + offs * self.speed);
+                    ret = generateAction(Action, &self.drag_generator, start_val + offs * self.speed);
                 }
             } else if (input_bounds.containsMousePos(input_state.mouse_pos)) {
                 self.state = .hovered;
@@ -156,15 +156,15 @@ pub fn DragFloat(comptime ActionType: type, comptime ValRetriever: type, comptim
 }
 
 pub fn makeWidget(
-    comptime ActionType: type,
+    comptime Action: type,
     alloc: Allocator,
     val_retriever: anytype,
     on_drag: anytype,
     style: *const DragFloatStyle,
     label_state: *const gui.gui_text.SharedState,
     squircle_renderer: *const SquircleRenderer,
-) !Widget(ActionType) {
-    return DragFloat(ActionType, @TypeOf(val_retriever), @TypeOf(on_drag)).init(
+) !Widget(Action) {
+    return DragFloat(Action, @TypeOf(val_retriever), @TypeOf(on_drag)).init(
         alloc,
         val_retriever,
         on_drag,
@@ -175,7 +175,7 @@ pub fn makeWidget(
 }
 
 pub fn makeWidgetWithSpeed(
-    comptime ActionType: type,
+    comptime Action: type,
     alloc: Allocator,
     speed: f32,
     val_retriever: anytype,
@@ -183,8 +183,8 @@ pub fn makeWidgetWithSpeed(
     style: *const DragFloatStyle,
     label_state: *const gui.gui_text.SharedState,
     squircle_renderer: *const SquircleRenderer,
-) !Widget(ActionType) {
-    return DragFloat(ActionType, @TypeOf(val_retriever), @TypeOf(on_drag)).initWithSpeed(
+) !Widget(Action) {
+    return DragFloat(Action, @TypeOf(val_retriever), @TypeOf(on_drag)).initWithSpeed(
         alloc,
         speed,
         val_retriever,
@@ -195,7 +195,7 @@ pub fn makeWidgetWithSpeed(
     );
 }
 
-fn generateAction(comptime ActionType: type, action_generator: anytype, val: f32) ActionType {
+fn generateAction(comptime Action: type, action_generator: anytype, val: f32) Action {
     const Ptr = @TypeOf(action_generator);
     const T = @typeInfo(Ptr).Pointer.child;
 

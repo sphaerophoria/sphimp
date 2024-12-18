@@ -9,21 +9,21 @@ const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
-pub fn ScrollView(comptime ActionType: type) type {
+// FIXME: style
+const bar_pad: u31 = 5;
+
+pub fn ScrollView(comptime Action: type) type {
     return struct {
-        layout: Widget(ActionType),
+        layout: Widget(Action),
         size: PixelSize,
 
         scrollbar_present: bool = false,
         scroll_offs: i32 = 0,
         scrollbar: Scrollbar,
 
-        const top_pad: u31 = 10;
-        const left_pad: u31 = 10;
-
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.widgetDeinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -34,10 +34,10 @@ pub fn ScrollView(comptime ActionType: type) type {
 
         pub fn init(
             alloc: Allocator,
-            layout: Widget(ActionType),
+            layout: Widget(Action),
             scrollbar_style: *const gui.scrollbar.Style,
             squircle_renderer: *const SquircleRenderer,
-        ) !Widget(ActionType) {
+        ) !Widget(Action) {
             const view = try alloc.create(Self);
             view.* = .{
                 .layout = layout,
@@ -85,7 +85,7 @@ pub fn ScrollView(comptime ActionType: type) type {
                 self.scrollbar_present = scrollbar_present;
 
                 var adjusted_window_size = window_size;
-                adjusted_window_size.width -= self.scrollbarWidth();
+                adjusted_window_size.width -= self.scrollbarWidth() + bar_pad;
                 try self.layout.update(adjusted_window_size);
 
                 // If we laid out everything and the scrollbar is in the wrong state, turn it off
@@ -111,7 +111,7 @@ pub fn ScrollView(comptime ActionType: type) type {
                 @as(f32, @floatFromInt(self.contentHeight()));
         }
 
-        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.scrollbar.handleInput(
                 input_state,
@@ -143,7 +143,8 @@ pub fn ScrollView(comptime ActionType: type) type {
                 defer scissor.reset();
 
                 const child_bounds = self.layoutBounds(bounds);
-                scissor.set(bounds.left, window_bounds.bottom - bounds.bottom, bounds.calcWidth(), bounds.calcHeight());
+                const scissor_bounds = child_bounds.calcIntersection(bounds);
+                scissor.set(scissor_bounds.left, window_bounds.bottom - scissor_bounds.bottom, scissor_bounds.calcWidth(), scissor_bounds.calcHeight());
                 self.layout.render(child_bounds, window_bounds);
             }
 
@@ -181,7 +182,7 @@ pub fn ScrollView(comptime ActionType: type) type {
         }
 
         fn contentHeight(self: Self) i32 {
-            return self.layout.getSize().height + top_pad;
+            return self.layout.getSize().height;
         }
 
         fn scrollbarWidth(self: Self) u31 {

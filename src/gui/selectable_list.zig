@@ -27,8 +27,8 @@ pub const SharedState = struct {
     style: Style,
 };
 
-pub fn selectableList(comptime ActionType: type, alloc: Allocator, retriever: anytype, generator: anytype, shared: *const SharedState) !Widget(ActionType) {
-    const S = SelectableList(ActionType, @TypeOf(retriever), @TypeOf(generator));
+pub fn selectableList(comptime Action: type, alloc: Allocator, retriever: anytype, generator: anytype, shared: *const SharedState) !Widget(Action) {
+    const S = SelectableList(Action, @TypeOf(retriever), @TypeOf(generator));
 
     const ret = try alloc.create(S);
     errdefer alloc.destroy(ret);
@@ -59,7 +59,7 @@ pub fn selectableList(comptime ActionType: type, alloc: Allocator, retriever: an
     };
 }
 
-pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, comptime GenerateSelect: type) type {
+pub fn SelectableList(comptime Action: type, comptime Retriever: type, comptime GenerateSelect: type) type {
     return struct {
         alloc: Allocator,
         retriever: Retriever,
@@ -79,7 +79,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
         const TextItem = gui_text.GuiText(LabelAdaptor(Retriever));
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -150,10 +150,10 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            const no_action = gui.InputResponse(ActionType){
+            const no_action = gui.InputResponse(Action){
                 .wants_focus = false,
                 .action = null,
             };
@@ -168,7 +168,7 @@ pub fn SelectableList(comptime ActionType: type, comptime Retriever: type, compt
                 if (self.debounce_state == .released and item_input_bounds.containsOptMousePos(input_state.mouse_down_location)) {
                     ret = .{
                         .wants_focus = false,
-                        .action = generateAction(ActionType, &self.action_generator, item.idx),
+                        .action = generateAction(Action, &self.action_generator, item.idx),
                     };
                     self.debounce_state = .clicked;
                     click_idx = item.idx;
@@ -325,7 +325,7 @@ fn removeExtraTextItems(comptime TextItem: type, alloc: Allocator, item_labels: 
     }
 }
 
-fn generateAction(comptime ActionType: type, action_generator: anytype, idx: usize) ActionType {
+fn generateAction(comptime Action: type, action_generator: anytype, idx: usize) Action {
     const Ptr = @TypeOf(action_generator);
     const T = @typeInfo(Ptr).Pointer.child;
 

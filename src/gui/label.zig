@@ -19,13 +19,13 @@ pub fn Label(comptime TextRetriever: type) type {
         const Self = @This();
 
         fn init(
-            comptime ActionType: type,
+            comptime Action: type,
             alloc: Allocator,
             text_retreiver: TextRetriever,
             wrap_width: u31,
             shared: *const gui_text.SharedState,
-        ) !Widget(ActionType) {
-            const widget_vtable = Widget(ActionType).VTable{
+        ) !Widget(Action) {
+            const widget_vtable = Widget(Action).VTable{
                 .render = Self.render,
                 .getSize = Self.getSize,
                 .deinit = Self.deinit,
@@ -74,6 +74,6 @@ pub fn Label(comptime TextRetriever: type) type {
     };
 }
 
-pub fn makeLabel(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, wrap_width: u31, shared: *const gui_text.SharedState) !Widget(ActionType) {
-    return Label(@TypeOf(text_retreiver)).init(ActionType, alloc, text_retreiver, wrap_width, shared);
+pub fn makeLabel(comptime Action: type, alloc: Allocator, text_retreiver: anytype, wrap_width: u31, shared: *const gui_text.SharedState) !Widget(Action) {
+    return Label(@TypeOf(text_retreiver)).init(Action, alloc, text_retreiver, wrap_width, shared);
 }

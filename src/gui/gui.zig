@@ -18,6 +18,7 @@ pub const selectable_list = @import("selectable_list.zig");
 pub const SquircleRenderer = @import("SquircleRenderer.zig");
 pub const default_gui = @import("default_gui.zig");
 pub const even_vert_layout = @import("even_vert_layout.zig");
+pub const frame = @import("frame.zig");
 
 test {
     std.testing.refAllDeclsRecursive(@This());
@@ -161,21 +162,21 @@ pub const PixelBBox = struct {
     }
 };
 
-pub fn InputResponse(comptime ActionType: type) type {
+pub fn InputResponse(comptime Action: type) type {
     return struct {
         wants_focus: bool,
-        action: ?ActionType,
+        action: ?Action,
     };
 }
 
-pub fn Widget(comptime ActionType: type) type {
+pub fn Widget(comptime Action: type) type {
     return struct {
         pub const VTable = struct {
             deinit: *const fn (ctx: ?*anyopaque, alloc: Allocator) void,
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
-            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) = null,
+            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(Action) = null,
             setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
         };
 
@@ -202,9 +203,9 @@ pub fn Widget(comptime ActionType: type) type {
             self.vtable.render(self.ctx, widget_bounds, window_bounds);
         }
 
-        pub fn setInputState(self: Self, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(ActionType) {
+        pub fn setInputState(self: Self, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(Action) {
             if (self.vtable.setInputState) |setState| {
-                return setState(self.ctx, widget_bounds, container_bounds, input_state);
+                return setState(self.ctx, widget_bounds, input_bounds, input_state);
             }
             return .{
                 .wants_focus = false,

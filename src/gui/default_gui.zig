@@ -4,8 +4,8 @@ const sphrender = @import("sphrender");
 const sphtext = @import("sphtext");
 const gui = @import("gui.zig");
 
-pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(ActionType) {
-    const ret = try alloc.create(DefaultGui(ActionType));
+pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) {
+    const ret = try alloc.create(DefaultGui(Action));
     errdefer alloc.destroy(ret);
     ret.root = null;
     ret.alloc = alloc;
@@ -13,7 +13,7 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
     ret.input_state = gui.InputState{};
     errdefer ret.input_state.deinit(alloc);
 
-    const font_size = 11.0;
+    const font_size = 20.0;
     ret.text_renderer = try sphtext.TextRenderer.init(alloc, font_size);
     errdefer ret.text_renderer.deinit(alloc);
 
@@ -124,8 +124,20 @@ pub fn defaultGui(comptime ActionType: type, alloc: Allocator) !*DefaultGui(Acti
         },
     };
 
+    ret.frame_shared = gui.frame.Shared{
+        .border_color = GlobalStyle.background_color2,
+        .squircle_renderer = &ret.squircle_renderer,
+        .corner_raduis = corner_radius,
+    };
 
-    ret.overlay = gui.popup_layer.PopupLayer(ActionType){};
+    ret.even_vert_layout_shared = gui.even_vert_layout.Shared{
+        .corner_radius = 0,
+        .border_size = @intFromFloat(unit / 2),
+        .border_color = GlobalStyle.background_color3,
+        .squircle_renderer = &ret.squircle_renderer,
+    };
+
+    ret.overlay = gui.popup_layer.PopupLayer(Action){};
 
 
     return ret;
@@ -137,6 +149,7 @@ pub const GlobalStyle = struct {
     pub const active_color = activeColor(default_color);
     pub const background_color = gui.Color{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 };
     pub const background_color2 = gui.Color{ .r = 0.2, .g = 0.2, .b = 0.2, .a = 1.0 };
+    pub const background_color3 = gui.Color{ .r = 0.15, .g = 0.15, .b = 0.15, .a = 1.0 };
 
     pub fn hoverColor(default: gui.Color) gui.Color {
         return .{
@@ -157,10 +170,10 @@ pub const GlobalStyle = struct {
     }
 };
 
-pub fn DefaultGui(comptime ActionType: type) type {
+pub fn DefaultGui(comptime Action: type) type {
     return struct {
         alloc: Allocator,
-        root: ?gui.Widget(ActionType),
+        root: ?gui.Widget(Action),
 
         layout_pad: u31,
         input_state: gui.InputState,
@@ -175,7 +188,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
         shared_color: gui.color_picker.SharedColorPickerState,
         shared_textbox_state: gui.textbox.SharedTextboxState,
         shared_selecatble_list_state: gui.selectable_list.SharedState,
-        overlay: gui.popup_layer.PopupLayer(ActionType),
+        frame_shared: gui.frame.Shared,
+        even_vert_layout_shared: gui.even_vert_layout.Shared,
+        overlay: gui.popup_layer.PopupLayer(Action),
 
         const Self = @This();
 
@@ -191,9 +206,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             self.alloc.destroy(self);
         }
 
-        pub fn makeLabel(self: *const Self, text_retriever: anytype, wrap_width: u31) !gui.Widget(ActionType) {
+        pub fn makeLabel(self: *const Self, text_retriever: anytype, wrap_width: u31) !gui.Widget(Action) {
             return gui.label.makeLabel(
-                ActionType,
+                Action,
                 self.alloc,
                 text_retriever,
                 wrap_width,
@@ -201,9 +216,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeButton(self: *const Self, text_retriever: anytype, click_action: anytype) !gui.Widget(ActionType) {
+        pub fn makeButton(self: *const Self, text_retriever: anytype, click_action: anytype) !gui.Widget(Action) {
             return gui.button.makeButton(
-                ActionType,
+                Action,
                 self.alloc,
                 text_retriever,
                 &self.shared_button_state,
@@ -211,9 +226,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeTextbox(self: *const Self, text_retriever: anytype, action: anytype) !gui.Widget(ActionType) {
+        pub fn makeTextbox(self: *const Self, text_retriever: anytype, action: anytype) !gui.Widget(Action) {
             return gui.textbox.makeTextbox(
-                ActionType,
+                Action,
                 self.alloc,
                 text_retriever,
                 action,
@@ -221,9 +236,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeSelectableList(self: *const Self, retriever: anytype, action_gen: anytype) !gui.Widget(ActionType) {
+        pub fn makeSelectableList(self: *const Self, retriever: anytype, action_gen: anytype) !gui.Widget(Action) {
             return gui.selectable_list.selectableList(
-                ActionType,
+                Action,
                 self.alloc,
                 retriever,
                 action_gen,
@@ -231,9 +246,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeColorPicker(self: *Self, retriever: anytype, action_gen: anytype) !gui.Widget(ActionType) {
+        pub fn makeColorPicker(self: *Self, retriever: anytype, action_gen: anytype) !gui.Widget(Action) {
             return gui.color_picker.makeColorPicker(
-                ActionType,
+                Action,
                 self.alloc,
                 retriever,
                 action_gen,
@@ -242,9 +257,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeDragFloat(self: *Self, retriever: anytype, action_gen: anytype) !gui.Widget(ActionType) {
+        pub fn makeDragFloat(self: *Self, retriever: anytype, action_gen: anytype) !gui.Widget(Action) {
             return gui.drag_float.makeWidget(
-                ActionType,
+                Action,
                 self.alloc,
                 retriever,
                 action_gen,
@@ -254,9 +269,9 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeDragFloatWithSpeed(self: *Self, speed: f32, retriever: anytype, action_gen: anytype) !gui.Widget(ActionType) {
+        pub fn makeDragFloatWithSpeed(self: *Self, speed: f32, retriever: anytype, action_gen: anytype) !gui.Widget(Action) {
             return gui.drag_float.makeWidgetWithSpeed(
-                ActionType,
+                Action,
                 self.alloc,
                 speed,
                 retriever,
@@ -267,28 +282,46 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn makeLayout(self: *Self) !*gui.layout.Layout(ActionType) {
-            return gui.layout.Layout(ActionType).init(self.alloc, self.layout_pad);
+        pub fn makeLayout(self: *Self) !*gui.layout.Layout(Action) {
+            return gui.layout.Layout(Action).init(self.alloc, self.layout_pad);
         }
 
-        pub fn makeScrollView(self: *Self, inner: gui.Widget(ActionType)) !gui.Widget(ActionType) {
-            return gui.scroll_view.ScrollView(ActionType).init(self.alloc, inner, &self.scroll_style, &self.squircle_renderer);
+        pub const FrameOptions = struct {
+            border_size: u31,
+            width: u31,
+            height: u31,
+            inner: gui.Widget(Action),
+        };
+
+        pub fn makeFrame(self: *Self, options: FrameOptions) !gui.Widget(Action) {
+            return gui.frame.makeFrame(Action, self.alloc, .{
+                .border_size = options.border_size,
+                .width = options.width,
+                .height = options.height,
+                .inner = options.inner,
+                .shared = &self.frame_shared,
+            });
         }
 
-        pub fn makeEvenVertLayout(self: *Self, width: u31) !*gui.even_vert_layout.EvenVertLayout(ActionType) {
-            const ret = try self.alloc.create(gui.even_vert_layout.EvenVertLayout(ActionType));
+        pub fn makeScrollView(self: *Self, inner: gui.Widget(Action)) !gui.Widget(Action) {
+            return gui.scroll_view.ScrollView(Action).init(self.alloc, inner, &self.scroll_style, &self.squircle_renderer);
+        }
+
+        pub fn makeEvenVertLayout(self: *Self, width: u31) !*gui.even_vert_layout.EvenVertLayout(Action) {
+            const ret = try self.alloc.create(gui.even_vert_layout.EvenVertLayout(Action));
             ret.* = .{
                 .width = width,
+                .shared = &self.even_vert_layout_shared,
             };
             return ret;
         }
 
-        pub fn makeStack(self: *Self) !*gui.stack.Stack(ActionType) {
-            return gui.stack.Stack(ActionType).init(self.alloc);
+        pub fn makeStack(self: *Self) !*gui.stack.Stack(Action) {
+            return gui.stack.Stack(Action).init(self.alloc);
         }
 
-        pub fn makeRect(self: *Self, size: gui.PixelSize, color: gui.Color, fill_parent: bool) !gui.Widget(ActionType) {
-            return gui.rect.Rect(ActionType).init(
+        pub fn makeRect(self: *Self, size: gui.PixelSize, color: gui.Color, fill_parent: bool) !gui.Widget(Action) {
+            return gui.rect.Rect(Action).init(
                 self.alloc,
                 size,
                 color,
@@ -297,10 +330,10 @@ pub fn DefaultGui(comptime ActionType: type) type {
             );
         }
 
-        pub fn setRootWidgetOrDeinit(self: *Self, widget: gui.Widget(ActionType)) !void {
+        pub fn setRootWidgetOrDeinit(self: *Self, widget: gui.Widget(Action)) !void {
             errdefer widget.deinit(self.alloc);
 
-            const root_stack = try gui.stack.Stack(ActionType).init(self.alloc);
+            const root_stack = try gui.stack.Stack(Action).init(self.alloc);
             errdefer root_stack.deinit(self.alloc);
 
             try root_stack.pushWidgetOrDeinit(self.alloc, widget, .{ .offset = .{ .x_offs = 0, .y_offs = 0 } });
@@ -309,7 +342,7 @@ pub fn DefaultGui(comptime ActionType: type) type {
             self.root = root_stack.asWidget();
         }
 
-        pub fn step(self: *Self, widget_bounds: gui.PixelBBox, window_size: gui.PixelSize, input_queue: anytype) !?ActionType {
+        pub fn step(self: *Self, widget_bounds: gui.PixelBBox, window_size: gui.PixelSize, input_queue: anytype) !?Action {
             const root = self.root orelse return null;
             const widget_size = gui.PixelSize {
                 .width = widget_bounds.calcWidth(),

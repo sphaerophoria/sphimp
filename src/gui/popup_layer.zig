@@ -7,14 +7,14 @@ const PixelSize = gui.PixelSize;
 const PixelBBox = gui.PixelBBox;
 const InputState = gui.InputState;
 
-pub fn PopupLayer(comptime ActionType: type) type {
+pub fn PopupLayer(comptime Action: type) type {
     return struct {
         inner: ?Data = null,
         container_size: PixelSize = .{ .width = 0, .height = 0 },
 
         const Data = struct {
             alloc: Allocator,
-            widget: Widget(ActionType),
+            widget: Widget(Action),
             x_offs: i32,
             y_offs: i32,
             mouse_released: bool = false,
@@ -33,7 +33,7 @@ pub fn PopupLayer(comptime ActionType: type) type {
             }
         };
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.widgetDeinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -44,7 +44,7 @@ pub fn PopupLayer(comptime ActionType: type) type {
 
         const Self = @This();
 
-        pub fn asWidget(self: *Self) Widget(ActionType) {
+        pub fn asWidget(self: *Self) Widget(Action) {
             return .{
                 .ctx = self,
                 .vtable = &widget_vtable,
@@ -64,7 +64,7 @@ pub fn PopupLayer(comptime ActionType: type) type {
         pub fn set(
             self: *Self,
             alloc: Allocator,
-            widget: Widget(ActionType),
+            widget: Widget(Action),
             x_offs: i32,
             y_offs: i32,
         ) void {
@@ -87,7 +87,7 @@ pub fn PopupLayer(comptime ActionType: type) type {
             }
         }
 
-        pub fn setInputState(ctx: ?*anyopaque, layer_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        pub fn setInputState(ctx: ?*anyopaque, layer_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             const data = if (self.inner) |*i| i else return .{
                 .wants_focus = false,

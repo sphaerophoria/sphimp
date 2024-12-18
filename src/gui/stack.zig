@@ -7,7 +7,7 @@ const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
-pub fn Stack(comptime ActionType: type) type {
+pub fn Stack(comptime Action: type) type {
     return struct {
         items: std.ArrayListUnmanaged(StackItem) = .{},
         total_size: PixelSize = .{ .width = 0, .height = 0 },
@@ -25,10 +25,10 @@ pub fn Stack(comptime ActionType: type) type {
 
         const StackItem = struct {
             layout: Layout,
-            widget: Widget(ActionType),
+            widget: Widget(Action),
         };
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinitWidget,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -51,7 +51,7 @@ pub fn Stack(comptime ActionType: type) type {
             alloc.destroy(self);
         }
 
-        pub fn pushWidgetOrDeinit(self: *Self, alloc: Allocator, widget: Widget(ActionType), layout: Layout) !void {
+        pub fn pushWidgetOrDeinit(self: *Self, alloc: Allocator, widget: Widget(Action), layout: Layout) !void {
             errdefer widget.deinit(alloc);
             try self.items.append(alloc, .{
                 .layout = layout,
@@ -62,7 +62,7 @@ pub fn Stack(comptime ActionType: type) type {
             self.total_size = newTotalSize(self.total_size, layout, item_size);
         }
 
-        pub fn asWidget(self: *Self) Widget(ActionType) {
+        pub fn asWidget(self: *Self) Widget(Action) {
             return .{
                 .ctx = self,
                 .vtable = &widget_vtable,
@@ -98,10 +98,10 @@ pub fn Stack(comptime ActionType: type) type {
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, stack_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var ret = gui.InputResponse(ActionType){
+            var ret = gui.InputResponse(Action){
                 .wants_focus = false,
                 .action = null,
             };
@@ -137,7 +137,7 @@ pub fn Stack(comptime ActionType: type) type {
             }
         }
 
-        fn itemBounds(stack_bounds: PixelBBox, layout: Layout, widget: Widget(ActionType)) PixelBBox {
+        fn itemBounds(stack_bounds: PixelBBox, layout: Layout, widget: Widget(Action)) PixelBBox {
             switch (layout) {
                 .centered => return util.centerBoxInBounds(widget.getSize(), stack_bounds),
                 .offset => |offs| {

@@ -47,7 +47,7 @@ pub const TextboxNotifier = struct {
     }
 };
 
-fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime TextAction: type) type {
+fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAction: type) type {
     return struct {
         alloc: Allocator,
         shared: *const SharedTextboxState,
@@ -60,7 +60,7 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable{
+        const widget_vtable = Widget(Action).VTable{
             .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -189,7 +189,7 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
             self.focused = focused;
         }
 
-        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             var wants_focus = self.focused;
 
@@ -203,7 +203,7 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
                 }
             }
 
-            var action: ?ActionType = null;
+            var action: ?Action = null;
             if (self.focused) {
                 for (input_state.frame_keys.items) |key| {
                     switch (key.key) {
@@ -215,7 +215,7 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
                         else => {},
                     }
                 }
-                action = generateAction(ActionType, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, input_state.frame_keys.items);
+                action = generateAction(Action, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, input_state.frame_keys.items);
             }
 
             return .{
@@ -233,8 +233,8 @@ fn Textbox(comptime ActionType: type, comptime TextRetriever: type, comptime Tex
     };
 }
 
-pub fn makeTextbox(comptime ActionType: type, alloc: Allocator, text_retreiver: anytype, text_action: anytype, shared: *const SharedTextboxState) !Widget(ActionType) {
-    const TB = Textbox(ActionType, @TypeOf(text_retreiver), @TypeOf(text_action));
+pub fn makeTextbox(comptime Action: type, alloc: Allocator, text_retreiver: anytype, text_action: anytype, shared: *const SharedTextboxState) !Widget(Action) {
+    const TB = Textbox(Action, @TypeOf(text_retreiver), @TypeOf(text_action));
     const box = try alloc.create(TB);
 
     const new_buffer = try gui_text.guiText(alloc, shared.guitext_shared, text_retreiver, std.math.maxInt(u31));
@@ -328,7 +328,7 @@ fn getCursorOffsetFromText(layout: sphtext.TextRenderer.TextLayout, cursor_pos: 
     return cursor_offs;
 }
 
-fn generateAction(comptime ActionType: type, action_generator: anytype, notifier: TextboxNotifier, pos: usize, items: []const gui.KeyEvent) ActionType {
+fn generateAction(comptime Action: type, action_generator: anytype, notifier: TextboxNotifier, pos: usize, items: []const gui.KeyEvent) Action {
     const Ptr = @TypeOf(action_generator);
     const T = @typeInfo(Ptr).Pointer.child;
 

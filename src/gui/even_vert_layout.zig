@@ -2,22 +2,31 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const sphrender = @import("sphrender");
 const gui = @import("gui.zig");
+const util = @import("util.zig");
 const Widget = gui.Widget;
 const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
-pub fn EvenVertLayout(comptime ActionType: type) type {
+pub const Shared = struct {
+    border_size: u31,
+    border_color: gui.Color,
+    corner_radius: f32,
+    squircle_renderer: *const gui.SquircleRenderer,
+};
+
+pub fn EvenVertLayout(comptime Action: type) type {
     return struct {
-        items: std.ArrayListUnmanaged(Widget(ActionType)) = .{},
+        items: std.ArrayListUnmanaged(Widget(Action)) = .{},
         // FIXME: width redundant
         container_size: PixelSize = .{ .width = 0, .height = 0 },
         focused_id: ?usize = null,
         width: u31,
+        shared: *const Shared,
 
         const Self = @This();
 
-        const widget_vtable = Widget(ActionType).VTable {
+        const widget_vtable = Widget(Action).VTable {
             .deinit = Self.widgetDeinit,
             .render = Self.render,
             .getSize = Self.getSize,
@@ -26,12 +35,12 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
             .setFocused = Self.setFocused,
         };
 
-        pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(ActionType)) !void {
+        pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(Action)) !void {
             errdefer widget.deinit(alloc);
             try self.items.append(alloc, widget);
         }
 
-        pub fn asWidget(self: *Self) Widget(ActionType) {
+        pub fn asWidget(self: *Self) Widget(Action) {
             return .{
                 .ctx = self,
                 .vtable = &widget_vtable,
@@ -53,9 +62,21 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
 
         fn render(ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
+
+            for (1..self.items.items.len) |i| {
+                const border_bounds = borderBounds(widget_bounds, self.shared.border_size, i, self.items.items.len);
+                const transform = util.widgetToClipTransform(border_bounds, window_bounds);
+                self.shared.squircle_renderer.render(
+                    self.shared.border_color,
+                    self.shared.corner_radius,
+                    border_bounds,
+                    transform,
+                );
+            }
+
             for (0..self.items.items.len) |i| {
                 const item = self.items.items[i];
-                const child_bounds = childBounds(widget_bounds, item.getSize(), i, self.items.items.len);
+                const child_bounds = childBounds(widget_bounds, self.shared.border_size, item.getSize(), i, self.items.items.len);
 
                 const scissor = sphrender.TemporaryScissor.init();
                 defer scissor.reset();
@@ -78,25 +99,22 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
                 .height = available_size.height,
             };
 
-            const child_size = PixelSize {
-                .width = self.width,
-                .height = @intCast(available_size.height / self.items.items.len),
-            };
+            const child_size = calcChildSize(self.items.items.len, self.container_size, self.shared.border_size);
             for (self.items.items) |item| {
                 try item.update(child_size);
             }
         }
 
-        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(ActionType) {
+        fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            var ret = gui.InputResponse(ActionType) {
+            var ret = gui.InputResponse(Action) {
                 .wants_focus = false,
                 .action = null,
             };
 
             for (self.items.items, 0..) |item, i| {
-                const child_bounds = childBounds(widget_bounds, item.getSize(), i, self.items.items.len);
+                const child_bounds = childBounds(widget_bounds, self.shared.border_size, item.getSize(), i, self.items.items.len);
                 const frame_area = PixelBBox {
                     .top = child_bounds.top,
                     .bottom = child_bounds.top + @as(i32, @intCast(self.container_size.height / self.items.items.len)),
@@ -130,13 +148,39 @@ pub fn EvenVertLayout(comptime ActionType: type) type {
     };
 }
 
-fn childBounds(layout_bounds: PixelBBox, widget_size: PixelSize, idx: usize, num_children: usize) PixelBBox {
-
-    const top: i32 = @intCast(layout_bounds.calcHeight() * idx / num_children);
+fn calcChildSize(num_children: usize, available_size: PixelSize, border_size: u31) PixelSize {
+    const frame_width = available_size.width;
+    const total_border_height = (num_children - 1) * border_size;
+    const frame_height: u31 = @intCast((available_size.height - total_border_height) / num_children);
 
     return .{
+        .width = frame_width,
+        .height = frame_height,
+    };
+}
+
+fn borderBounds(layout_bounds: PixelBBox, border_size: u31, idx: usize, num_children: usize) PixelBBox {
+    const available_height = layout_bounds.calcHeight() + border_size;
+    const bottom = @as(i32, @intCast(available_height * idx / num_children));
+    return .{
         .left = layout_bounds.left,
-        .right = layout_bounds.left + widget_size.width,
+        .right = layout_bounds.right,
+        .top = bottom - border_size,
+        .bottom = bottom,
+    };
+}
+
+fn childBounds(layout_bounds: PixelBBox, border_size: u31, widget_size: PixelSize, idx: usize, num_children: usize) PixelBBox {
+    // There's no top border on the top element, and no bottom border on the
+    // bottom element
+    // Each element after the first one starts after a border
+    // Add one border height to the total height
+    const available_height = layout_bounds.calcHeight() + border_size;
+    const top = @as(i32, @intCast(available_height * idx / num_children));
+    const left = layout_bounds.left;
+    return .{
+        .left = left,
+        .right = left + widget_size.width,
         .top = top,
         .bottom = top + widget_size.height,
     };
