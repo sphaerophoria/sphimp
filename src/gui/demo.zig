@@ -462,8 +462,11 @@ fn generateLayoutForApp(gui_gen: *gui.default_gui.DefaultGui(UiAction), window_s
         try layout.pushOrDeinitWidget(gui_gen.alloc, label);
     }
 
+    const frame = try gui_gen.makeFrame(layout.asWidget());
+    // FIXME: if scroll view fails  this will leak
+
     // FIXME: makeScrollView
-    const scroll = try ScrollView(UiAction).init(gui_gen.alloc, layout.asWidget(), &gui_gen.scroll_style, &gui_gen.squircle_renderer);
+    const scroll = try ScrollView(UiAction).init(gui_gen.alloc, frame, &gui_gen.scroll_style, &gui_gen.squircle_renderer);
     return scroll;
 }
 

@@ -37,7 +37,12 @@ pub const Scrollbar = struct {
             .dragging => |start_offs| {
                 const scrollbar_height: f32 = @floatFromInt(bounds.calcHeight());
 
-                return (input_state.mouse_pos.y - input_state.mouse_down_location.?.y) / scrollbar_height + start_offs;
+                const ret =  std.math.clamp(
+                    (input_state.mouse_pos.y - input_state.mouse_down_location.?.y) / scrollbar_height + start_offs,
+                    0.0,
+                    1.0 - self.bar_ratio,
+                );
+                return ret;
             },
             else => {
                 return null;
@@ -49,7 +54,7 @@ pub const Scrollbar = struct {
         const transform = util.widgetToClipTransform(bounds, window);
         self.renderer.render(
             self.style.gutter_color,
-            self.style.corner_radius,
+            0.0,
             bounds,
             transform,
         );

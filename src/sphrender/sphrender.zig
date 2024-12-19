@@ -508,8 +508,31 @@ pub const TemporaryScissor = struct {
         };
     }
 
-    pub fn set(_: TemporaryScissor, left: gl.GLint, bottom: gl.GLint, width: gl.GLint, height: gl.GLint) void {
-        gl.glScissor(left, bottom, @intCast(width), @intCast(height));
+    pub fn set(self: TemporaryScissor, left: gl.GLint, bottom: gl.GLint, width: gl.GLint, height: gl.GLint) void {
+        if (!self.previous_enable) {
+            gl.glScissor(left, bottom, width, height);
+        }
+
+        const requested_right = left + width;
+        const requested_top = bottom + height;
+
+        const previous_right = self.previous_args[0] + self.previous_args[2];
+        const previous_top = self.previous_args[1] + self.previous_args[3];
+
+        const new_left = @max(self.previous_args[0], left);
+        const new_bottom = @max(self.previous_args[1], bottom);
+        const new_right = @min(requested_right, previous_right);
+        const new_top = @min(requested_top, previous_top);
+
+        const new_height = @max(new_top - new_bottom, 0);
+        const new_width = @max(new_right - new_left, 0);
+
+        // If someone has previously scissored, we need to respect them
+        gl.glScissor(new_left, new_bottom, new_width, new_height);
+    }
+
+    pub fn setAbsolute(_: TemporaryScissor, left: gl.GLint, bottom: gl.GLint, width: gl.GLint, height: gl.GLint) void {
+        gl.glScissor(left, bottom, width, height);
     }
 
     pub fn reset(self: TemporaryScissor) void {

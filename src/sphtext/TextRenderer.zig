@@ -146,8 +146,12 @@ const LayoutHelper = struct {
         };
 
         const new_bounds = self.bounds.merge(glyph_bounds);
-        if (new_bounds.width() > self.wrap_width_px and self.rollback_data.start_x != 0) {
+        if (new_bounds.width() >= self.wrap_width_px and self.rollback_data.start_x != 0) {
             self.rollback();
+            self.advanceLine();
+            return true;
+        } else if (new_bounds.width() >= self.wrap_width_px and self.rollback_data.start_x == 0) {
+            self.text_idx -= 1;
             self.advanceLine();
             return true;
         }
@@ -183,7 +187,7 @@ const LayoutHelper = struct {
 
         // Now guaranteed to be in a word without layout state between word
         self.layout_state = .in_word;
-        self.rollback_data.text_idx = self.text_idx;
+        self.rollback_data.text_idx = self.text_idx - 1;
         self.rollback_data.glyphs_len = self.glyphs.items.len;
         self.rollback_data.bounds = self.bounds;
         self.rollback_data.start_x = self.funit_cursor_x;

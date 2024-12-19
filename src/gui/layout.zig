@@ -218,14 +218,14 @@ pub fn Layout(comptime Action: type) type {
             switch (self.cursor.direction) {
                 .horizontal => {
                     return .{
-                        .width = self.cursor.x,
+                        .width = self.cursor.x -| self.item_pad,
                         .height = self.max_item_size.height,
                     };
                 },
                 .vertical => {
                     return .{
                         .width = self.max_item_size.width,
-                        .height = self.cursor.y,
+                        .height = self.cursor.y -| self.item_pad,
                     };
                 },
             }

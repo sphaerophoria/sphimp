@@ -74,7 +74,8 @@ pub fn init(alloc: Allocator) !GlyphAtlas {
 
     const temp_scissor = sphrender.TemporaryScissor.init();
     defer temp_scissor.reset();
-    temp_scissor.set(0, 0, tex_width, tex_height);
+
+    temp_scissor.setAbsolute(0, 0, tex_width, tex_height);
 
     gl.glClearColor(
         std.math.inf(f32),
@@ -199,7 +200,7 @@ fn renderTextureIntoAtlas(self: *GlyphAtlas, bounds: PixelBBox, distance_field: 
         bounds.top - bounds.bottom,
     );
 
-    temp_scissor.set(bounds.left, bounds.bottom, bounds.right - bounds.left, bounds.top - bounds.bottom);
+    temp_scissor.setAbsolute(bounds.left, bounds.bottom, bounds.right - bounds.left, bounds.top - bounds.bottom);
 
     self.program.render(self.glyph_buffer, &.{}, &.{
         .{

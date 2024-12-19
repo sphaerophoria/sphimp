@@ -13,7 +13,7 @@ pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) 
     ret.input_state = gui.InputState{};
     errdefer ret.input_state.deinit(alloc);
 
-    const font_size = 20.0;
+    const font_size = 11.0;
     ret.text_renderer = try sphtext.TextRenderer.init(alloc, font_size);
     errdefer ret.text_renderer.deinit(alloc);
 
@@ -125,6 +125,7 @@ pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) 
     };
 
     ret.frame_shared = gui.frame.Shared{
+        .border_size = @intFromFloat(unit / 2),
         .border_color = GlobalStyle.background_color2,
         .squircle_renderer = &ret.squircle_renderer,
         .corner_raduis = corner_radius,
@@ -286,19 +287,9 @@ pub fn DefaultGui(comptime Action: type) type {
             return gui.layout.Layout(Action).init(self.alloc, self.layout_pad);
         }
 
-        pub const FrameOptions = struct {
-            border_size: u31,
-            width: u31,
-            height: u31,
-            inner: gui.Widget(Action),
-        };
-
-        pub fn makeFrame(self: *Self, options: FrameOptions) !gui.Widget(Action) {
+        pub fn makeFrame(self: *Self, inner: gui.Widget(Action)) !gui.Widget(Action) {
             return gui.frame.makeFrame(Action, self.alloc, .{
-                .border_size = options.border_size,
-                .width = options.width,
-                .height = options.height,
-                .inner = options.inner,
+                .inner = inner,
                 .shared = &self.frame_shared,
             });
         }

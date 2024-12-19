@@ -150,7 +150,7 @@ pub fn EvenVertLayout(comptime Action: type) type {
 
 fn calcChildSize(num_children: usize, available_size: PixelSize, border_size: u31) PixelSize {
     const frame_width = available_size.width;
-    const total_border_height = (num_children - 1) * border_size;
+    const total_border_height = (num_children -| 1) * border_size;
     const frame_height: u31 = @intCast((available_size.height - total_border_height) / num_children);
 
     return .{

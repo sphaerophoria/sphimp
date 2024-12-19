@@ -35,6 +35,7 @@ fn keyCallbackGlfw(window: ?*glfwb.GLFWwindow, key: c_int, _: c_int, action: c_i
 
     const key_char: gui.Key = switch (key) {
         glfwb.GLFW_KEY_A...glfwb.GLFW_KEY_Z => .{ .ascii = @intCast(key - glfwb.GLFW_KEY_A + 'a') },
+        glfwb.GLFW_KEY_COMMA...glfwb.GLFW_KEY_9 => .{ .ascii = @intCast(key - glfwb.GLFW_KEY_COMMA + ',') },
         glfwb.GLFW_KEY_SPACE => .{ .ascii = ' ' },
         glfwb.GLFW_KEY_LEFT => .left_arrow,
         glfwb.GLFW_KEY_RIGHT => .right_arrow,
@@ -421,57 +422,68 @@ const CreateShaderActionGen = struct {
 };
 
 
-fn makeObjList(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31) !gui.Widget(UiAction) {
-    const object_list_layout = try default_gui.makeLayout();
-    errdefer object_list_layout.deinit(default_gui.alloc);
+fn makeObjList(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), available_space: gui.PixelSize) !gui.Widget(UiAction) {
+    const layout = blk: {
+        const layout = try default_gui.makeLayout();
+        errdefer layout.deinit(default_gui.alloc);
 
-    const label = try default_gui.makeLabel("Object list", wrap_width);
-    try object_list_layout.pushOrDeinitWidget(default_gui.alloc, label);
+        const label = try default_gui.makeLabel("Object list", available_space.width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, label);
 
-    const obj_list = try default_gui.makeSelectableList(ObjectListRetriever { .app = app }, ObjectListActionGen { .app = app } );
-    // FIXME: errdefer free obj_list
-    const scroll_select = try default_gui.makeScrollView(obj_list);
-    try object_list_layout.pushOrDeinitWidget(default_gui.alloc, scroll_select);
+        const obj_list = try default_gui.makeSelectableList(ObjectListRetriever { .app = app }, ObjectListActionGen { .app = app } );
+        try layout.pushOrDeinitWidget(default_gui.alloc, obj_list);
 
-    return object_list_layout.asWidget();
+        break :blk layout;
+    };
+
+    const frame = try default_gui.makeFrame(layout.asWidget());
+    errdefer frame.deinit(default_gui.alloc);
+
+    return try default_gui.makeScrollView(frame);
 }
 
 fn makeCreateObject(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31) !gui.Widget(UiAction) {
-    const layout = try default_gui.makeLayout();
-    errdefer layout.deinit(default_gui.alloc);
+    const layout = blk: {
+        const layout = try default_gui.makeLayout();
+        errdefer layout.deinit(default_gui.alloc);
 
-    {
-        const label = try default_gui.makeLabel("Create an item", wrap_width);
-        try layout.pushOrDeinitWidget(default_gui.alloc, label);
-    }
+        {
+            const label = try default_gui.makeLabel("Create an item", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, label);
+        }
 
-    {
-        const button = try default_gui.makeButton("New path", .create_path);
-        try layout.pushOrDeinitWidget(default_gui.alloc, button);
-    }
-    {
-        const button = try default_gui.makeButton("New composition", .create_composition);
-        try layout.pushOrDeinitWidget(default_gui.alloc, button);
-    }
-    {
-        const button = try default_gui.makeButton("New drawing", .create_drawing);
-        try layout.pushOrDeinitWidget(default_gui.alloc, button);
-    }
-    {
-        const button = try default_gui.makeButton("New text", .create_text);
-        try layout.pushOrDeinitWidget(default_gui.alloc, button);
-    }
+        {
+            const button = try default_gui.makeButton("New path", .create_path);
+            try layout.pushOrDeinitWidget(default_gui.alloc, button);
+        }
+        {
+            const button = try default_gui.makeButton("New composition", .create_composition);
+            try layout.pushOrDeinitWidget(default_gui.alloc, button);
+        }
+        {
+            const button = try default_gui.makeButton("New drawing", .create_drawing);
+            try layout.pushOrDeinitWidget(default_gui.alloc, button);
+        }
+        {
+            const button = try default_gui.makeButton("New text", .create_text);
+            try layout.pushOrDeinitWidget(default_gui.alloc, button);
+        }
 
-    {
-        const label = try default_gui.makeLabel("Create an shader", wrap_width);
-        try layout.pushOrDeinitWidget(default_gui.alloc, label);
+        {
+            const label = try default_gui.makeLabel("Create an shader", wrap_width);
+            try layout.pushOrDeinitWidget(default_gui.alloc, label);
 
-        const shader_list = try default_gui.makeSelectableList(ShaderListRetriever { .app = app }, CreateShaderActionGen { .app = app } );
-        try layout.pushOrDeinitWidget(default_gui.alloc, shader_list);
+            const shader_list = try default_gui.makeSelectableList(ShaderListRetriever { .app = app }, CreateShaderActionGen { .app = app } );
+            try layout.pushOrDeinitWidget(default_gui.alloc, shader_list);
+        }
 
-    }
+        break :blk layout;
+    };
 
-    return try default_gui.makeScrollView(layout.asWidget());
+    const frame = try default_gui.makeFrame(layout.asWidget());
+    errdefer frame.deinit(default_gui.alloc);
+
+    return try default_gui.makeScrollView(frame);
 }
 
 const CurrentObjectNameRetriever = struct {
@@ -589,38 +601,45 @@ fn regenerateSpecificObjectProperties(app: *App, default_gui: *gui.default_gui.D
 fn makeObjectProperties(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), wrap_width: u31, specific_properties: gui.Widget(UiAction)) !gui.Widget(UiAction) {
     // FIXME: Errdefer specific properties?
 
-    const layout = try default_gui.makeLayout();
-    errdefer layout.deinit(default_gui.alloc);
+    const layout = blk: {
+        const layout = try default_gui.makeLayout();
+        errdefer layout.deinit(default_gui.alloc);
 
-    const layout_name = try default_gui.makeLabel("Object properties", wrap_width);
-    try layout.pushOrDeinitWidget(default_gui.alloc, layout_name);
+        const layout_name = try default_gui.makeLabel("Object properties", wrap_width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, layout_name);
 
-    // Name: [name.txt]
-    {
-        const name_edit = try default_gui.makeLayout();
-        try layout.pushOrDeinitWidget(default_gui.alloc, name_edit.asWidget());
+        // Name: [name.txt]
+        {
+            const name_edit = try default_gui.makeLayout();
+            try layout.pushOrDeinitWidget(default_gui.alloc, name_edit.asWidget());
 
-        name_edit.cursor.direction = .horizontal;
+            name_edit.cursor.direction = .horizontal;
 
-        const name_edit_label = try default_gui.makeLabel("Name: ", wrap_width);
-        try name_edit.pushOrDeinitWidget(default_gui.alloc, name_edit_label);
+            const name_edit_label = try default_gui.makeLabel("Name: ", wrap_width);
+            try name_edit.pushOrDeinitWidget(default_gui.alloc, name_edit_label);
 
-        const name_box = try default_gui.makeTextbox(CurrentObjectNameRetriever { .app = app }, &UiAction.makeEditName);
-        try name_edit.pushOrDeinitWidget(default_gui.alloc, name_box);
-    }
+            const name_box = try default_gui.makeTextbox(CurrentObjectNameRetriever { .app = app }, &UiAction.makeEditName);
+            try name_edit.pushOrDeinitWidget(default_gui.alloc, name_box);
+        }
 
-    const delete_button = try default_gui.makeButton("Delete", .delete_selected_object);
-    try layout.pushOrDeinitWidget(default_gui.alloc, delete_button);
+        const delete_button = try default_gui.makeButton("Delete", .delete_selected_object);
+        try layout.pushOrDeinitWidget(default_gui.alloc, delete_button);
 
-    const width = try default_gui.makeLabel(CurrentObjectWidthRetriever { .app = app }, wrap_width);
-    try layout.pushOrDeinitWidget(default_gui.alloc, width);
+        const width = try default_gui.makeLabel(CurrentObjectWidthRetriever { .app = app }, wrap_width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, width);
 
-    const height = try default_gui.makeLabel(CurrentObjectHeightRetriever { .app = app }, wrap_width);
-    try layout.pushOrDeinitWidget(default_gui.alloc, height);
+        const height = try default_gui.makeLabel(CurrentObjectHeightRetriever { .app = app }, wrap_width);
+        try layout.pushOrDeinitWidget(default_gui.alloc, height);
 
-    try layout.pushOrDeinitWidget(default_gui.alloc, specific_properties);
+        try layout.pushOrDeinitWidget(default_gui.alloc, specific_properties);
 
-    return layout.asWidget();
+        break :blk layout;
+    };
+
+    const frame = try default_gui.makeFrame(layout.asWidget());
+    errdefer frame.deinit(default_gui.alloc);
+
+    return try default_gui.makeScrollView(frame);
 }
 
 const AppWidget = struct {
@@ -664,7 +683,6 @@ const AppWidget = struct {
 
 
         self.app.render() catch return;
-
     }
 
     fn getSize(ctx: ?*anyopaque) gui.PixelSize {
@@ -780,7 +798,7 @@ pub fn main() !void {
     defer default_gui.deinit();
 
     const object_list_stack = try default_gui.makeStack();
-    const sidebar_width = window_width / 3;
+    const sidebar_width = window_width / 4;
     var widget_bounds = gui.PixelBBox {
         .top = 0,
         .left = 0,
@@ -805,7 +823,8 @@ pub fn main() !void {
     try toplevel_layout.pushOrDeinitWidget(default_gui.alloc, object_list_stack.asWidget());
 
     // FIXME: Deinit order shennanigans
-    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjList(&app, default_gui, sidebar_width));
+    // FIXME: Calculate elem height in one place
+    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjList(&app, default_gui, .{ .width = sidebar_width, .height = window_height / 3 }));
     try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeCreateObject(&app, default_gui, sidebar_width));
 
     const specific_object_properties = try default_gui.makeLayout();
@@ -827,6 +846,7 @@ pub fn main() !void {
         const width, const height = glfw.getWindowSize();
 
         sphrender.gl.glViewport(0, 0, @intCast(width), @intCast(height));
+        sphrender.gl.glScissor(0, 0, @intCast(width), @intCast(height));
 
         widget_bounds.bottom = @intCast(height);
         //if (try imgui.renderObjectProperties(app.input_state.selected_object, &app.objects, app.shaders, app.brushes, app.fonts)) |action| {

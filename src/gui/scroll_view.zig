@@ -9,9 +9,6 @@ const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
 const InputState = gui.InputState;
 
-// FIXME: style
-const bar_pad: u31 = 5;
-
 pub fn ScrollView(comptime Action: type) type {
     return struct {
         layout: Widget(Action),
@@ -85,7 +82,7 @@ pub fn ScrollView(comptime Action: type) type {
                 self.scrollbar_present = scrollbar_present;
 
                 var adjusted_window_size = window_size;
-                adjusted_window_size.width -= self.scrollbarWidth() + bar_pad;
+                adjusted_window_size.width -= self.scrollbarWidth();
                 try self.layout.update(adjusted_window_size);
 
                 // If we laid out everything and the scrollbar is in the wrong state, turn it off

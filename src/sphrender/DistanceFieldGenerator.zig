@@ -76,7 +76,7 @@ pub fn generateDistanceField(self: DistanceFieldGenerator, alloc: Allocator, poi
         defer temp_scissor.reset();
 
         temp_viewport.setViewport(@intCast(width), @intCast(height));
-        temp_scissor.set(0, 0, @intCast(width), @intCast(height));
+        temp_scissor.setAbsolute(0, 0, @intCast(width), @intCast(height));
 
         clearBuffers();
 
