@@ -47,19 +47,16 @@ pub fn widgetToClipCenterY(widget_center: f32, window_center: f32) f32 {
 }
 
 pub fn centerBoxInBounds(box: PixelSize, bounds: PixelBBox) PixelBBox {
-    const width_pad = bounds.calcWidth() - box.width;
-    const height_pad = bounds.calcHeight() - box.height;
+    const width_pad = bounds.calcWidth() -| box.width;
+    const height_pad = bounds.calcHeight() -| box.height;
     const half_width_pad = @divTrunc(width_pad, 2);
     const half_height_pad = @divTrunc(height_pad, 2);
 
     var output = bounds;
     output.left += half_width_pad;
-    output.right -= half_width_pad + @mod(width_pad, 2);
+    output.right = output.left + box.width;
     output.top += half_height_pad;
-    output.bottom -= half_height_pad + @mod(height_pad, 2);
-
-    std.debug.assert(output.calcWidth() == box.width);
-    std.debug.assert(output.calcHeight() == box.height);
+    output.bottom = output.top + box.height;
 
     return output;
 }

@@ -19,6 +19,8 @@ pub const SquircleRenderer = @import("SquircleRenderer.zig");
 pub const default_gui = @import("default_gui.zig");
 pub const even_vert_layout = @import("even_vert_layout.zig");
 pub const frame = @import("frame.zig");
+pub const property_list = @import("property_list.zig");
+pub const null_widget = @import("null.zig");
 
 test {
     std.testing.refAllDeclsRecursive(@This());
@@ -176,7 +178,7 @@ pub fn Widget(comptime Action: type) type {
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
-            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(Action) = null,
+            setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(Action) = null,
             setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
         };
 
@@ -203,9 +205,9 @@ pub fn Widget(comptime Action: type) type {
             self.vtable.render(self.ctx, widget_bounds, window_bounds);
         }
 
-        pub fn setInputState(self: Self, widget_bounds: PixelBBox, container_bounds: PixelBBox, input_state: InputState) InputResponse(Action) {
+        pub fn setInputState(self: Self, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(Action) {
             if (self.vtable.setInputState) |setState| {
-                return setState(self.ctx, widget_bounds, container_bounds, input_state);
+                return setState(self.ctx, widget_bounds, input_bounds, input_state);
             }
             return .{
                 .wants_focus = false,

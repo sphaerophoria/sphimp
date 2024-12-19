@@ -328,6 +328,11 @@ fn generateAction(comptime Action: type, color_generator: anytype, color: Color)
     const T = @typeInfo(Ptr).Pointer.child;
 
     switch (@typeInfo(T)) {
+        .Struct => {
+            if (@hasDecl(T, "generate")) {
+                return color_generator.generate(color);
+            }
+        },
         .Pointer => |p| {
             switch (@typeInfo(p.child)) {
                 .Fn => {
@@ -352,13 +357,18 @@ fn getColor(color_retriever: anytype) Color {
     const T = @typeInfo(Ptr).Pointer.child;
 
     switch (@typeInfo(T)) {
+        .Struct => {
+            if (@hasDecl(T, "getColor")) {
+                return color_retriever.*.getColor();
+            }
+        },
         .Pointer => {
             return color_retriever.*.*;
         },
         else => {},
     }
 
-    @compileError("Cannot get color from type " ++ T);
+    @compileError("Cannot get color from type " ++ @typeName(T));
 }
 
 const hexagon_width_ratio: [2]i32 = .{ 17, 20 };

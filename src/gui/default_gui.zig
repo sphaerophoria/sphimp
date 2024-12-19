@@ -25,7 +25,8 @@ pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) 
     errdefer ret.ttf.deinit(alloc);
 
     const unit: f32 = @floatFromInt(sphtext.ttf.lineHeightPx(ret.ttf, font_size));
-    ret.layout_pad = @intFromFloat(unit / 2);
+    const layout_pad: u31 = @intFromFloat(unit / 2);
+    ret.layout_pad = layout_pad;
 
     const widget_width: u31 = @intFromFloat(unit * 8);
     const button_height: u31 = @intFromFloat(unit * 1.4);
@@ -118,14 +119,14 @@ pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) 
             .active_color = GlobalStyle.active_color,
             .background_color = GlobalStyle.background_color2,
             .corner_radius = corner_radius,
-            .item_pad = widget_text_padding,
+            .item_pad = layout_pad,
             .width = widget_width,
             .min_item_height = @intFromFloat(unit),
         },
     };
 
     ret.frame_shared = gui.frame.Shared{
-        .border_size = @intFromFloat(unit / 2),
+        .border_size = layout_pad,
         .border_color = GlobalStyle.background_color2,
         .squircle_renderer = &ret.squircle_renderer,
         .corner_raduis = corner_radius,
@@ -136,6 +137,11 @@ pub fn defaultGui(comptime Action: type, alloc: Allocator) !*DefaultGui(Action) 
         .border_size = @intFromFloat(unit / 2),
         .border_color = GlobalStyle.background_color3,
         .squircle_renderer = &ret.squircle_renderer,
+    };
+
+    ret.property_list_style = gui.property_list.Style {
+        .value_width = widget_width + layout_pad,
+        .item_pad = layout_pad,
     };
 
     ret.overlay = gui.popup_layer.PopupLayer(Action){};
@@ -191,6 +197,7 @@ pub fn DefaultGui(comptime Action: type) type {
         shared_selecatble_list_state: gui.selectable_list.SharedState,
         frame_shared: gui.frame.Shared,
         even_vert_layout_shared: gui.even_vert_layout.Shared,
+        property_list_style: gui.property_list.Style,
         overlay: gui.popup_layer.PopupLayer(Action),
 
         const Self = @This();
@@ -204,6 +211,7 @@ pub fn DefaultGui(comptime Action: type) type {
             self.squircle_renderer.deinit(self.alloc);
             self.shared_color.deinit(self.alloc);
             self.overlay.reset();
+            self.input_state.deinit(self.alloc);
             self.alloc.destroy(self);
         }
 
@@ -285,6 +293,10 @@ pub fn DefaultGui(comptime Action: type) type {
 
         pub fn makeLayout(self: *Self) !*gui.layout.Layout(Action) {
             return gui.layout.Layout(Action).init(self.alloc, self.layout_pad);
+        }
+
+        pub fn makePropertyList(self: *Self) !*gui.property_list.PropertyList(Action) {
+            return gui.property_list.makePropertyList(Action, self.alloc, &self.property_list_style);
         }
 
         pub fn makeFrame(self: *Self, inner: gui.Widget(Action)) !gui.Widget(Action) {

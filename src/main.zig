@@ -312,6 +312,15 @@ const UiAction = union(enum) {
     },
     update_composition_width: f32,
     update_composition_height: f32,
+    update_shader_float: struct {
+        uniform_idx: usize,
+        float_idx: usize,
+        val: f32,
+    },
+    update_shader_color: struct {
+        uniform_idx: usize,
+        color: gui.Color,
+    },
 
     fn makeEditName(notifier: gui.textbox.TextboxNotifier, pos: usize, items: []const gui.KeyEvent) UiAction {
         return .{
@@ -329,6 +338,34 @@ const UiAction = union(enum) {
 
     fn makeUpdateCompositionHeight(val: f32) UiAction {
         return .{ .update_composition_height = val};
+    }
+};
+
+const ShaderFloatChangeActionGenerator = struct {
+    uniform_idx: usize,
+    float_idx: usize,
+
+    pub fn generate(self: ShaderFloatChangeActionGenerator, val: f32) UiAction {
+        return .{
+            .update_shader_float = .{
+                .uniform_idx = self.uniform_idx,
+                .float_idx = self.float_idx,
+                .val = val,
+            },
+        };
+    }
+};
+
+const ShaderColorChangeGenerator = struct {
+    uniform_idx: usize,
+
+    pub fn generate(self: ShaderColorChangeGenerator, color: gui.Color) UiAction {
+        return .{
+            .update_shader_color = .{
+                .uniform_idx = self.uniform_idx,
+                .color = color,
+            },
+        };
     }
 };
 
@@ -495,28 +532,6 @@ const CurrentObjectNameRetriever = struct {
 };
 
 
-const CurrentObjectWidthRetriever = struct {
-    app: *App,
-    buf: [16]u8 = undefined,
-
-    pub fn getText(self: *CurrentObjectWidthRetriever) []const u8 {
-        return std.fmt.bufPrint(&self.buf, "Width: {d}", .{
-            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[0],
-        }) catch "Width: undefined";
-    }
-};
-
-const CurrentObjectHeightRetriever = struct {
-    app: *App,
-    buf: [17]u8 = undefined,
-
-    pub fn getText(self: *CurrentObjectHeightRetriever) []const u8 {
-        return std.fmt.bufPrint(&self.buf, "Height: {d}", .{
-            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[1],
-        }) catch "Height: undefined";
-    }
-};
-
 pub fn LabelTextBuf(comptime size: usize) type {
     return struct {
         buf: [size]u8,
@@ -531,13 +546,34 @@ pub fn LabelTextBuf(comptime size: usize) type {
 fn labelTextBuf(comptime fmt: []const u8, args: anytype, comptime max_len: usize) LabelTextBuf(max_len) {
     var buf: [max_len]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, fmt, args) catch buf[0..max_len];
-    std.debug.print("got slice: {s}\n" ,.{slice});
     return .{
         .buf = buf,
         .text_len = slice.len,
     };
 }
 
+
+const CurrentObjectWidthRetriever = struct {
+    app: *App,
+    buf: [10]u8 = undefined,
+
+    pub fn getText(self: *CurrentObjectWidthRetriever) []const u8 {
+        return std.fmt.bufPrint(&self.buf, "{d}", .{
+            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[0]
+        }) catch "error";
+    }
+};
+
+const CurrentObjectHeightRetriever = struct {
+    app: *App,
+    buf: [10]u8 = undefined,
+
+    pub fn getText(self: *CurrentObjectHeightRetriever) []const u8 {
+        return std.fmt.bufPrint(&self.buf, "{d}", .{
+            self.app.objects.get(self.app.input_state.selected_object).dims(&self.app.objects)[1]
+        }) catch "error";
+    }
+};
 
 const CurrentObjectWidthRetrieverf32 = struct {
     app: *App,
@@ -555,40 +591,173 @@ const CurrentObjectHeightRetrieverf32 = struct {
     }
 };
 
+const ShaderFloatRetriever = struct {
+    app: *App,
+    object_id: obj_mod.ObjectId,
+    uniform_idx: usize,
+    float_idx: usize,
+
+    pub fn getVal(self: *ShaderFloatRetriever) f32 {
+        const obj = self.app.objects.get(self.object_id);
+        const shader = obj.asShader() orelse return -std.math.inf(f32);
+        switch (shader.bindings[self.uniform_idx]) {
+            .float => |f| {
+                return f;
+            },
+            .float2 => |f| {
+                return f[self.float_idx];
+            },
+            .float3 => |f| {
+                return f[self.float_idx];
+            },
+            else => return -std.math.inf(f32),
+        }
+    }
+};
+
+const ShaderColorRetriever = struct {
+    app: *App,
+    object_id: obj_mod.ObjectId,
+    uniform_idx: usize,
+
+    pub fn getColor(self: ShaderColorRetriever) gui.Color {
+        const black = gui.Color{ .r = 0, .g = 0, .b = 0, .a = 1 };
+        const obj = self.app.objects.get(self.object_id);
+        const shader = obj.asShader() orelse return black;
+        switch (shader.bindings[self.uniform_idx]) {
+            .float3 => |f| {
+                return .{ .r = f[0], .g = f[1], .b = f[2], .a = 1.0 };
+            },
+            else => return black,
+        }
+    }
+};
+
 fn regenerateSpecificObjectProperties(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAction), layout: *gui.layout.Layout(UiAction), wrap_width: u31) !void {
 
     layout.reset(default_gui.alloc);
 
+    const property_list = try default_gui.makePropertyList();
+    try layout.pushOrDeinitWidget(default_gui.alloc, property_list.asWidget());
+
     const selected_obj = app.objects.get(app.input_state.selected_object);
+
+    {
+        const type_label_key = try default_gui.makeLabel("Object type", wrap_width);
+        errdefer type_label_key.deinit(default_gui.alloc);
+
+        const type_label_value = try default_gui.makeLabel(@tagName(selected_obj.data), wrap_width);
+        errdefer type_label_value.deinit(default_gui.alloc);
+
+        try property_list.pushWidgets(default_gui.alloc, type_label_key, type_label_value);
+    }
+
     switch (selected_obj.data) {
         .filesystem => |fs_obj| {
-            const object_type = try default_gui.makeLabel("Filesystem object", wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
+            {
+                const source_key = try default_gui.makeLabel("Source", wrap_width);
+                errdefer source_key.deinit(default_gui.alloc);
 
-            const source_label = try default_gui.makeLabel(labelTextBuf("Source: {s}", .{fs_obj.source}, 1024), wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, source_label);
+                const source_value = try default_gui.makeLabel(fs_obj.source, wrap_width);
+                errdefer source_value.deinit(default_gui.alloc);
+
+                try property_list.pushWidgets(default_gui.alloc, source_key, source_value);
+            }
         },
-        .generated_mask => {
-            const object_type = try default_gui.makeLabel("Generated mask", wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
-        },
+        .generated_mask => { },
         .composition => {
-            const object_type = try default_gui.makeLabel("Composition", wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, object_type);
+            {
+                const width_label = try default_gui.makeLabel("Width", wrap_width);
+                errdefer width_label.deinit(default_gui.alloc);
 
-            const width_label = try default_gui.makeLabel("Width", wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, width_label);
+                const width_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectWidthRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionWidth);
+                errdefer width_dragger.deinit(default_gui.alloc);
 
-            const width_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectWidthRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionWidth);
-            try layout.pushOrDeinitWidget(default_gui.alloc, width_dragger);
+                try property_list.pushWidgets(default_gui.alloc, width_label, width_dragger);
+            }
 
-            const height_label = try default_gui.makeLabel("Height", wrap_width);
-            try layout.pushOrDeinitWidget(default_gui.alloc, height_label);
+            {
+                const height_label = try default_gui.makeLabel("Height", wrap_width);
+                errdefer height_label.deinit(default_gui.alloc);
 
-            const height_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectHeightRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionHeight);
-            try layout.pushOrDeinitWidget(default_gui.alloc, height_dragger);
+                const height_dragger = try default_gui.makeDragFloatWithSpeed(1.0, CurrentObjectHeightRetrieverf32 { .app = app }, &UiAction.makeUpdateCompositionHeight);
+                errdefer height_dragger.deinit(default_gui.alloc);
+
+                try property_list.pushWidgets(default_gui.alloc, height_label, height_dragger);
+            }
         },
-        //.shader: ShaderObject,
+        .shader => |s| {
+            const shader = app.shaders.get(s.program);
+            for (0..shader.program.uniforms.len) |i| {
+                const uniform = shader.program.uniforms[i];
+                const max_label_len = 20;
+
+                const value = s.bindings[i];
+
+                switch (value) {
+                    //image: ?ObjectId,
+                    .float => {
+                        const uniform_label = try default_gui.makeLabel(uniform.name, wrap_width);
+                        errdefer uniform_label.deinit(default_gui.alloc);
+
+                        const value_widget = try default_gui.makeDragFloat(
+                            ShaderFloatRetriever{
+                                .app = app,
+                                .object_id = app.input_state.selected_object,
+                                .uniform_idx = i,
+                                .float_idx = 0,
+                            },
+                            ShaderFloatChangeActionGenerator{
+                                .uniform_idx = i,
+                                .float_idx = 0,
+                            },
+                        );
+                        errdefer value_widget.deinit(default_gui.alloc);
+
+                        try property_list.pushWidgets(default_gui.alloc, uniform_label, value_widget);
+                    },
+                    .float2 => {
+                        const params: [2][]const u8 = .{ "X", "Y" };
+                        for (params, 0..) |param_name, idx| {
+                            const uniform_label = try default_gui.makeLabel(labelTextBuf("{s} {s}", .{uniform.name, param_name}, max_label_len), wrap_width);
+                            errdefer uniform_label.deinit(default_gui.alloc);
+
+                            const value_widget = try default_gui.makeDragFloat(
+                                ShaderFloatRetriever { .app = app, .object_id = app.input_state.selected_object, .uniform_idx = i, .float_idx = idx,},
+                                ShaderFloatChangeActionGenerator { .uniform_idx = i, .float_idx = idx, },
+                            );
+                            errdefer value_widget.deinit(default_gui.alloc);
+
+                            try property_list.pushWidgets(default_gui.alloc, uniform_label, value_widget);
+
+                        }
+                    },
+                    .float3 => {
+                            const uniform_label = try default_gui.makeLabel(uniform.name, wrap_width);
+                            errdefer uniform_label.deinit(default_gui.alloc);
+
+                            const value_widget = try default_gui.makeColorPicker(
+                                ShaderColorRetriever { .app = app, .object_id = app.input_state.selected_object, .uniform_idx = i,},
+                                ShaderColorChangeGenerator { .uniform_idx = i },
+                            );
+                            errdefer value_widget.deinit(default_gui.alloc);
+
+                            try property_list.pushWidgets(default_gui.alloc, uniform_label, value_widget);
+                    },
+                    //int: i32,
+                    else => {
+                        const uniform_label = try default_gui.makeLabel(uniform.name, wrap_width);
+                        errdefer uniform_label.deinit(default_gui.alloc);
+
+                        const value_widget = try default_gui.makeLabel("unimplemented", wrap_width);
+                        errdefer value_widget.deinit(default_gui.alloc);
+
+                        try property_list.pushWidgets(default_gui.alloc, uniform_label, value_widget);
+                    },
+                }
+
+            }
+        },
         //.path: PathObject,
         //.generated_mask: GeneratedMaskObject,
         //.drawing: DrawingObject,
@@ -608,28 +777,46 @@ fn makeObjectProperties(app: *App, default_gui: *gui.default_gui.DefaultGui(UiAc
         const layout_name = try default_gui.makeLabel("Object properties", wrap_width);
         try layout.pushOrDeinitWidget(default_gui.alloc, layout_name);
 
-        // Name: [name.txt]
+        const property_list = try default_gui.makePropertyList();
+        try layout.pushOrDeinitWidget(default_gui.alloc, property_list.asWidget());
+
         {
-            const name_edit = try default_gui.makeLayout();
-            try layout.pushOrDeinitWidget(default_gui.alloc, name_edit.asWidget());
-
-            name_edit.cursor.direction = .horizontal;
-
-            const name_edit_label = try default_gui.makeLabel("Name: ", wrap_width);
-            try name_edit.pushOrDeinitWidget(default_gui.alloc, name_edit_label);
+            const name_label = try default_gui.makeLabel("Name", wrap_width);
+            errdefer name_label.deinit(default_gui.alloc);
 
             const name_box = try default_gui.makeTextbox(CurrentObjectNameRetriever { .app = app }, &UiAction.makeEditName);
-            try name_edit.pushOrDeinitWidget(default_gui.alloc, name_box);
+            errdefer name_box.deinit(default_gui.alloc);
+
+            try property_list.pushWidgets(default_gui.alloc, name_label, name_box);
         }
 
-        const delete_button = try default_gui.makeButton("Delete", .delete_selected_object);
-        try layout.pushOrDeinitWidget(default_gui.alloc, delete_button);
+        {
 
-        const width = try default_gui.makeLabel(CurrentObjectWidthRetriever { .app = app }, wrap_width);
-        try layout.pushOrDeinitWidget(default_gui.alloc, width);
+            const delete_button = try default_gui.makeButton("Delete", .delete_selected_object);
+            errdefer delete_button.deinit(default_gui.alloc);
 
-        const height = try default_gui.makeLabel(CurrentObjectHeightRetriever { .app = app }, wrap_width);
-        try layout.pushOrDeinitWidget(default_gui.alloc, height);
+            try property_list.pushWidgets(default_gui.alloc, gui.null_widget.makeNull(UiAction), delete_button);
+        }
+
+        {
+            const label = try default_gui.makeLabel("Width", wrap_width);
+            errdefer label.deinit(default_gui.alloc);
+
+            const value = try default_gui.makeLabel(CurrentObjectWidthRetriever { .app = app }, wrap_width);
+            errdefer value.deinit(default_gui.alloc);
+
+            try property_list.pushWidgets(default_gui.alloc, label, value);
+        }
+
+        {
+            const label = try default_gui.makeLabel("Height", wrap_width);
+            errdefer label.deinit(default_gui.alloc);
+
+            const value = try default_gui.makeLabel(CurrentObjectHeightRetriever { .app = app }, wrap_width);
+            errdefer value.deinit(default_gui.alloc);
+
+            try property_list.pushWidgets(default_gui.alloc, label, value);
+        }
 
         try layout.pushOrDeinitWidget(default_gui.alloc, specific_properties);
 
@@ -798,7 +985,7 @@ pub fn main() !void {
     defer default_gui.deinit();
 
     const object_list_stack = try default_gui.makeStack();
-    const sidebar_width = window_width / 4;
+    const sidebar_width = 300;
     var widget_bounds = gui.PixelBBox {
         .top = 0,
         .left = 0,
@@ -958,41 +1145,53 @@ pub fn main() !void {
             .right = window_size.width,
             .bottom = window_size.height,
         };
-        if (try default_gui.step(window_bounds, window_size, &glfw.queue)) |action| {
+
+        const selected_object = app.input_state.selected_object;
+        if (try default_gui.step(window_bounds, window_size, &glfw.queue)) |action| exec_action: {
             switch (action) {
                 .update_selected_object => |id| {
                     app.setSelectedObject(id);
-                    try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
                 },
                 .create_path => {
-                    _ = app.createPath() catch |e| {
+                    const new_obj = app.createPath() catch |e| {
                         logError("failed to create path", e, @errorReturnTrace());
+                        break :exec_action;
                     };
+                    app.setSelectedObject(new_obj);
                 },
                 .create_composition => {
-                    _ = app.addComposition() catch |e| {
+                    const new_obj = app.addComposition() catch |e| {
                         logError("failed to create composition", e, @errorReturnTrace());
+                        break :exec_action;
                     };
+                    app.setSelectedObject(new_obj);
                 },
                 .create_drawing => {
-                    _ = app.addDrawing() catch |e| {
+                    const new_obj = app.addDrawing() catch |e| {
                         logError("failed to create drawing", e, @errorReturnTrace());
+                        break :exec_action;
                     };
 
+                    app.setSelectedObject(new_obj);
                 },
                 .create_text => {
-                    _ = app.addText() catch |e| {
+                    const new_obj = app.addText() catch |e| {
                         logError("failed to create text", e, @errorReturnTrace());
+                        break :exec_action;
                     };
+                    app.setSelectedObject(new_obj);
                 },
                 .create_shader => |id| {
-                    _ = app.addShaderObject("new shader", id) catch |e| {
+                    const new_obj = app.addShaderObject("new shader", id) catch |e| {
                         logError("failed to create shader", e, @errorReturnTrace());
+                        break :exec_action;
                     };
+                    app.setSelectedObject(new_obj);
                 },
                 .delete_selected_object => {
                     app.deleteSelectedObject() catch |e| {
                         logError("failed to delete object", e, @errorReturnTrace());
+                        break :exec_action;
                     };
 
                 },
@@ -1005,7 +1204,7 @@ pub fn main() !void {
                     try edit_name.appendSlice(alloc, name);
                     try gui.textbox.executeTextEditOnArrayList(alloc, &edit_name, params.pos, params.notifier, params.items);
 
-                    try app.updateSelectedObjectName(try edit_name.toOwnedSlice(alloc));
+                    try app.updateSelectedObjectName(edit_name.items);
                 },
                 .update_composition_width => |new_width| {
                     app.updateSelectedWidth(new_width) catch |e| {
@@ -1017,7 +1216,42 @@ pub fn main() !void {
                         logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
+                .update_shader_float => |params| shader_blk: {
+                    const obj = app.objects.get(app.input_state.selected_object);
+                    const shader = obj.asShader() orelse break :shader_blk;
+                    const uniform = &shader.bindings[params.uniform_idx];
+                    switch (uniform.*) {
+                        .float => |*v| {
+                            v.* = params.val;
+                        },
+                        .float2 => |*v| {
+                            v[params.float_idx] = params.val;
+                        },
+                        .float3 => |*v| {
+                            v[params.float_idx] = params.val;
+                        },
+                        .image, .int  => {},
+                    }
+                },
+                .update_shader_color => |params| shader_blk: {
+                    const obj = app.objects.get(app.input_state.selected_object);
+                    const shader = obj.asShader() orelse break :shader_blk;
+                    const uniform = &shader.bindings[params.uniform_idx];
+                    switch (uniform.*) {
+                        .float3 => |*v| {
+                            v[0] = params.color.r;
+                            v[1] = params.color.g;
+                            v[2] = params.color.b;
+                        },
+                        else => {},
+                    }
+
+                },
             }
+        }
+
+        if (selected_object.value != app.input_state.selected_object.value) {
+            try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
         }
 
         glfw.swapBuffers();

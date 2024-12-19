@@ -66,7 +66,7 @@ pub fn GuiText(comptime TextRetriever: type) type {
                 alloc,
                 text,
                 self.shared.ttf.*,
-                self.wrap_width,
+                wrap_width,
             );
             errdefer text_layout.deinit(alloc);
 

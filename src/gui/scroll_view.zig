@@ -99,6 +99,13 @@ pub fn ScrollView(comptime Action: type) type {
 
             self.size = window_size;
 
+            // FIXME: duplicated with setInputState
+            self.scroll_offs = std.math.clamp(
+                self.scroll_offs,
+                0,
+                @max(self.contentHeight() - window_size.height, 0),
+            );
+
             self.scrollbar.bar_ratio =
                 @as(f32, @floatFromInt(window_size.height)) /
                 @as(f32, @floatFromInt(self.contentHeight()));
