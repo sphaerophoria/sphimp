@@ -67,6 +67,7 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         fn deinit(ctx: ?*anyopaque, _: Allocator) void {
@@ -189,6 +190,13 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
             self.focused = focused;
         }
 
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.label_left_offs = 0;
+            const current_text = gui.gui_text.getText(&self.gui_text.text_retriever);
+            self.cursor_pos_text_idx = current_text.len;
+        }
+
         fn setInputState(ctx: ?*anyopaque, _: PixelBBox, input_bounds: PixelBBox, input_state: InputState) gui.InputResponse(Action) {
             const self: *Self = @ptrCast(@alignCast(ctx));
             var wants_focus = self.focused;
@@ -205,17 +213,19 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
 
             var action: ?Action = null;
             if (self.focused) {
-                for (input_state.frame_keys.items) |key| {
-                    switch (key.key) {
-                        .left_arrow => self.cursor_pos_text_idx = self.cursor_pos_text_idx -| 1,
-                        .right_arrow => {
-                            const text = self.gui_text.text;
-                            self.cursor_pos_text_idx = @min(self.cursor_pos_text_idx + 1, text.len);
-                        },
-                        else => {},
+                if (input_state.frame_keys.items.len > 0) {
+                    for (input_state.frame_keys.items) |key| {
+                        switch (key.key) {
+                            .left_arrow => self.cursor_pos_text_idx = self.cursor_pos_text_idx -| 1,
+                            .right_arrow => {
+                                const text = self.gui_text.text;
+                                self.cursor_pos_text_idx = @min(self.cursor_pos_text_idx + 1, text.len);
+                            },
+                            else => {},
+                        }
                     }
+                    action = generateAction(Action, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, input_state.frame_keys.items);
                 }
-                action = generateAction(Action, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, input_state.frame_keys.items);
             }
 
             return .{

@@ -27,6 +27,7 @@ pub fn ScrollView(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         pub fn init(
@@ -171,6 +172,12 @@ pub fn ScrollView(comptime Action: type) type {
         fn setFocused(ctx: ?*anyopaque, focused: bool) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.layout.setFocused(focused);
+        }
+
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.scroll_offs = 0;
+            self.layout.reset();
         }
 
         fn layoutBounds(self: Self, bounds: PixelBBox) PixelBBox {

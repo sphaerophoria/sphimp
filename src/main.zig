@@ -1015,7 +1015,8 @@ pub fn main() !void {
     try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeCreateObject(&app, default_gui, sidebar_width));
 
     const specific_object_properties = try default_gui.makeLayout();
-    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, try makeObjectProperties(&app, default_gui, sidebar_width, specific_object_properties.asWidget()));
+    const object_properties = try makeObjectProperties(&app, default_gui, sidebar_width, specific_object_properties.asWidget());
+    try sidebar_layout.pushOrDeinitWidget(default_gui.alloc, object_properties);
     try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
 
     try object_list_stack.pushWidgetOrDeinit(default_gui.alloc, sidebar_layout.asWidget(), .centered);
@@ -1252,6 +1253,7 @@ pub fn main() !void {
 
         if (selected_object.value != app.input_state.selected_object.value) {
             try regenerateSpecificObjectProperties(&app, default_gui, specific_object_properties, sidebar_width);
+            object_properties.reset();
         }
 
         glfw.swapBuffers();

@@ -141,7 +141,10 @@ const LayoutHelper = struct {
         const glyph_bounds = self.calcCharBounds(metrics.left_side_bearing, c) orelse {
             self.funit_cursor_x += metrics.advance_width;
             self.bounds.max_x += self.funit_converter.pixelFromFunit(metrics.advance_width);
-            self.bounds.max_x = @min(self.wrap_width_px, self.bounds.max_x);
+            // -1 to ensure that we stay BELOW the wrap width, or else future
+            // checks will get confused about why the bounding box is >= the
+            // wrap width
+            self.bounds.max_x = @min(self.wrap_width_px - 1, self.bounds.max_x);
             return true;
         };
 
@@ -241,6 +244,25 @@ pub fn layoutText(self: *TextRenderer, alloc: Allocator, text: []const u8, ttf: 
         .min_y = layout_helper.bounds.min_y,
         .max_y = layout_helper.bounds.max_y,
     };
+}
+
+test "layout text infinite loop" {
+    const alloc = std.testing.allocator;
+    const text = "bannister.jpgasdlfkjasdlkfjaslkdfjklasjf kl";
+    var ttf = try ttf_mod.Ttf.init(alloc, @embedFile("res/Hack-Regular.ttf"));
+    defer ttf.deinit(alloc);
+    const point_size = 11;
+    const wrap_width_px = 284;
+
+    var layout_helper = LayoutHelper.init(alloc, text, &ttf, wrap_width_px, point_size);
+    defer layout_helper.glyphs.deinit();
+
+    const max_steps = 1000;
+    var i: usize = 0;
+    while (try layout_helper.step()) {
+        if (i > max_steps) return error.TooLong;
+        i += 1;
+    }
 }
 
 pub fn makeTextBuffer(self: *TextRenderer, alloc: Allocator, text: TextLayout, ttf: ttf_mod.Ttf, distance_field_generator: sphrender.DistanceFieldGenerator) !Buffer {

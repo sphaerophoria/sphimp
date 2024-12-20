@@ -180,8 +180,9 @@ pub const Object = struct {
                 return dims(source.*, object_list);
             },
             .shader => |s| {
-                const primary_input = s.bindings[s.primary_input_idx];
                 const default_res = PixelDims{ 1024, 1024 };
+                if (s.primary_input_idx >= s.bindings.len) return default_res;
+                const primary_input = s.bindings[s.primary_input_idx];
                 if (primary_input != .image) return default_res;
                 if (primary_input.image == null) return default_res;
                 const source = object_list.get(primary_input.image.?);

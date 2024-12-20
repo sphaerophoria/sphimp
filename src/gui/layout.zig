@@ -61,6 +61,7 @@ pub fn Layout(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.resetWidgets,
         };
 
         pub fn init(alloc: Allocator, item_pad: u31) !*Self {
@@ -228,6 +229,14 @@ pub fn Layout(comptime Action: type) type {
                         .height = self.cursor.y -| self.item_pad,
                     };
                 },
+            }
+        }
+
+        fn resetWidgets(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+
+            for (self.items.items) |*item| {
+                item.widget.reset();
             }
         }
 

@@ -35,6 +35,7 @@ pub fn Stack(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         pub fn init(alloc: Allocator) !*Self {
@@ -136,6 +137,14 @@ pub fn Stack(comptime Action: type) type {
                 self.items.items[id].widget.setFocused(focused);
             }
         }
+
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            for (self.items.items) |item| {
+                item.widget.reset();
+            }
+        }
+
 
         fn itemBounds(stack_bounds: PixelBBox, layout: Layout, widget: Widget(Action)) PixelBBox {
             switch (layout) {

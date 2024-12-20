@@ -145,4 +145,13 @@ pub fn build(b: *std.Build) !void {
 
     const run_gui_uts = b.addRunArtifact(gui_uts);
     test_step.dependOn(&run_gui_uts.step);
+
+    const sphtext_uts = builder.addTest(
+        "sphtext_test",
+        "src/sphtext/sphtext.zig",
+    );
+    builder.addAppDependencies(sphtext_uts);
+
+    const run_sphtext_uts = b.addRunArtifact(sphtext_uts);
+    test_step.dependOn(&run_sphtext_uts.step);
 }

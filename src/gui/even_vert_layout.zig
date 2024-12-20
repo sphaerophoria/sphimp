@@ -33,6 +33,7 @@ pub fn EvenVertLayout(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         pub fn pushOrDeinitWidget(self: *Self, alloc: Allocator, widget: Widget(Action)) !void {
@@ -143,6 +144,13 @@ pub fn EvenVertLayout(comptime Action: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.focused_id) |id| {
                 self.items.items[id].setFocused(focused);
+            }
+        }
+
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            for (self.items.items) |item| {
+                item.reset();
             }
         }
     };

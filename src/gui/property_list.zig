@@ -44,6 +44,7 @@ pub fn PropertyList(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         pub fn deinit(self: *Self, alloc: Allocator) void {
@@ -167,6 +168,14 @@ pub fn PropertyList(comptime Action: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx));
             if (self.focused_id) |id| {
                 self.items.items[id].value.setFocused(focused);
+            }
+        }
+
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            for (self.items.items) |item| {
+                item.key.reset();
+                item.value.reset();
             }
         }
     };

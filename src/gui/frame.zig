@@ -56,6 +56,7 @@ pub fn Frame(comptime Action: type) type {
             .update = Self.update,
             .setInputState = Self.setInputState,
             .setFocused = Self.setFocused,
+            .reset = Self.reset,
         };
 
         const Self = @This();
@@ -133,6 +134,11 @@ pub fn Frame(comptime Action: type) type {
         fn setFocused(ctx: ?*anyopaque, focused: bool) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             return self.inner.setFocused(focused);
+        }
+
+        fn reset(ctx: ?*anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.inner.reset();
         }
 
         fn adjustSize(self: Self, size: PixelSize) PixelSize {

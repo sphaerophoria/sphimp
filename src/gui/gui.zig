@@ -180,6 +180,7 @@ pub fn Widget(comptime Action: type) type {
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void = null,
             setInputState: ?*const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(Action) = null,
             setFocused: ?*const fn (ctx: ?*anyopaque, focused: bool) void = null,
+            reset: ?*const fn (ctx: ?*anyopaque) void = null,
         };
 
         const Self = @This();
@@ -218,6 +219,12 @@ pub fn Widget(comptime Action: type) type {
         pub fn setFocused(self: Self, focused: bool) void {
             if (self.vtable.setFocused) |f| {
                 f(self.ctx, focused);
+            }
+        }
+
+        pub fn reset(self: Self) void {
+            if (self.vtable.reset) |f| {
+                f(self.ctx);
             }
         }
     };
