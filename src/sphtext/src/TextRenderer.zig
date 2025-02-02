@@ -3,7 +3,10 @@ const Allocator = std.mem.Allocator;
 const GlyphAtlas = @import("GlyphAtlas.zig");
 const sphmath = @import("sphmath");
 const ttf_mod = @import("ttf.zig");
+const sphalloc = @import("sphalloc");
+const ScratchAlloc = sphalloc.ScratchAlloc;
 const sphrender = @import("sphrender");
+const GlAlloc = sphrender.GlAlloc;
 
 const ShaderProgram = sphrender.xyuvt_program.Program(TextUniforms);
 pub const Buffer = sphrender.xyuvt_program.Buffer;
@@ -51,12 +54,9 @@ pub const TextLayout = struct {
     max_y: i32,
 };
 
-pub fn init(alloc: Allocator, point_size: f32) !TextRenderer {
-    const program = try ShaderProgram.init(text_fragment_shader);
-    errdefer program.deinit();
-
-    const glyph_atlas = try GlyphAtlas.init();
-    errdefer glyph_atlas.deinit(alloc);
+pub fn init(gl_alloc: *GlAlloc, point_size: f32) !TextRenderer {
+    const program = try ShaderProgram.init(gl_alloc, text_fragment_shader);
+    const glyph_atlas = try GlyphAtlas.init(gl_alloc);
 
     return .{
         .program = program,
@@ -65,9 +65,8 @@ pub fn init(alloc: Allocator, point_size: f32) !TextRenderer {
     };
 }
 
-pub fn deinit(self: *TextRenderer, alloc: Allocator) void {
-    self.program.deinit();
-    self.glyph_atlas.deinit(alloc);
+pub fn resetAtlas(self: *TextRenderer) !void {
+    try self.glyph_atlas.reset();
 }
 
 const LayoutState = enum {
@@ -301,21 +300,21 @@ test "layout text infinite loop" {
     }
 }
 
-pub fn makeTextBuffer(self: *TextRenderer, alloc: Allocator, text: TextLayout, ttf: ttf_mod.Ttf, distance_field_generator: sphrender.DistanceFieldGenerator) !Buffer {
+pub fn updateTextBuffer(self: *TextRenderer, alloc: Allocator, scratch_alloc: *ScratchAlloc, scratch_gl: *GlAlloc, text: TextLayout, ttf: ttf_mod.Ttf, distance_field_generator: sphrender.DistanceFieldGenerator, buffer: *Buffer) !void {
+    const checkpoint = scratch_alloc.checkpoint();
+    defer scratch_alloc.restore(checkpoint);
+
     const num_points_per_plane = 6;
     const Vertex = sphrender.xyuvt_program.Vertex;
-    const new_buffer_data = try alloc.alloc(Vertex, text.glyphs.len * num_points_per_plane);
-    defer alloc.free(new_buffer_data);
-
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
+    const new_buffer_data = try scratch_alloc.allocator().alloc(Vertex, text.glyphs.len * num_points_per_plane);
 
     var buffer_idx: usize = 0;
+    const loop_checkpoint = scratch_alloc.checkpoint();
     for (text.glyphs) |glyph| {
-        _ = arena.reset(.retain_capacity);
+        scratch_alloc.restore(loop_checkpoint);
         defer buffer_idx += num_points_per_plane;
 
-        const uv_loc = try self.glyph_atlas.getGlyphLocation(alloc, arena.allocator(), glyph.char, self.point_size, ttf, distance_field_generator);
+        const uv_loc = try self.glyph_atlas.getGlyphLocation(alloc, scratch_alloc.allocator(), scratch_gl, glyph.char, self.point_size, ttf, distance_field_generator);
 
         // [0, width] -> [-1, 1]
         const clip_x_start = pixToClip(@intCast(glyph.pixel_x1 - text.min_x), text.width());
@@ -354,10 +353,7 @@ pub fn makeTextBuffer(self: *TextRenderer, alloc: Allocator, text: TextLayout, t
         new_buffer_data[buffer_idx + 5] = tr;
     }
 
-    var buf = self.program.makeFullScreenPlane();
-    buf.updateBuffer(new_buffer_data);
-
-    return buf;
+    buffer.updateBuffer(new_buffer_data);
 }
 
 pub fn render(self: TextRenderer, buf: Buffer, transform: sphmath.Transform) void {

@@ -4,16 +4,26 @@ const sphmath = @import("sphmath");
 const gui = @import("gui.zig");
 const sphtext = @import("sphtext");
 const sphrender = @import("sphrender");
+const sphutil = @import("sphutil");
+const TypicallySmallList = sphutil.TypicallySmallList;
 const PixelSize = gui.PixelSize;
 const TextRenderer = sphtext.TextRenderer;
+const sphalloc = @import("sphalloc");
+const ScratchAlloc = sphalloc.ScratchAlloc;
+const GlAlloc = sphrender.GlAlloc;
 
 pub const SharedState = struct {
+    // Allocator that can be used for anything that needs to live for the
+    // lifetime of all shared state
+    alloc: Allocator,
+    scratch_alloc: *ScratchAlloc,
+    scratch_gl: *GlAlloc,
     text_renderer: *TextRenderer,
     ttf: *const sphtext.ttf.Ttf,
     distance_field_generator: *const sphrender.DistanceFieldGenerator,
 };
 
-pub fn guiText(alloc: Allocator, shared: *const SharedState, text_retriever_const: anytype) !GuiText(@TypeOf(text_retriever_const)) {
+pub fn guiText(alloc: gui.GuiAlloc, shared: *const SharedState, text_retriever_const: anytype) !GuiText(@TypeOf(text_retriever_const)) {
     // Ideally we don't layout now, because the layout is likely going to
     // change when we put whatever widget we are rendering in into whatever
     // container it belongs to.
@@ -21,32 +31,33 @@ pub fn guiText(alloc: Allocator, shared: *const SharedState, text_retriever_cons
     // Its convenient for users of us to have a valid layout though, so we just
     // layout nothing for now
     const text_layout = TextRenderer.TextLayout.empty;
-    errdefer text_layout.deinit(alloc);
 
-    const text_buffer = shared.text_renderer.program.makeFullScreenPlane();
-    errdefer text_buffer.deinit();
+    const text_buffer = try shared.text_renderer.program.makeFullScreenPlane(alloc.gl);
 
-    // Callers still may want to look at the text
-    var text_retriever = text_retriever_const;
-    const text = getText(&text_retriever);
-
-    const duped_text = try alloc.dupe(u8, text);
-    errdefer alloc.free(duped_text);
+    const text = try TypicallySmallList(u8).init(
+        alloc.heap.arena(),
+        alloc.heap.block_alloc.allocator(),
+        150,
+        1 << 20,
+    );
 
     return .{
+        .alloc = alloc,
         .layout = text_layout,
-        .text = duped_text,
+        .text = text,
         .buffer = text_buffer,
         .shared = shared,
-        .text_retriever = text_retriever,
+        .text_retriever = text_retriever_const,
     };
 }
 
 pub fn GuiText(comptime TextRetriever: type) type {
     return struct {
+        alloc: gui.GuiAlloc,
+        // FIXME: LinkedArraysList with page freeing
         layout: TextRenderer.TextLayout,
         buffer: TextRenderer.Buffer,
-        text: []const u8,
+        text: TypicallySmallList(u8),
         wrap_width: u31 = 0,
         shared: *const SharedState,
 
@@ -54,21 +65,15 @@ pub fn GuiText(comptime TextRetriever: type) type {
 
         const Self = @This();
 
-        pub fn deinit(self: Self, alloc: Allocator) void {
-            self.layout.deinit(alloc);
-            alloc.free(self.text);
-            self.buffer.deinit();
-        }
-
-        pub fn update(self: *Self, alloc: Allocator, wrap_width: u31) !void {
+        pub fn update(self: *Self, wrap_width: u31) !void {
             if (self.wrap_width != wrap_width) {
-                try self.regenerate(alloc, wrap_width);
+                try self.regenerate(wrap_width);
                 return;
             }
 
             const new_text = getText(&self.text_retriever);
-            if (!std.mem.eql(u8, new_text, self.text)) {
-                try self.regenerate(alloc, wrap_width);
+            if (!self.text.contentMatches(new_text)) {
+                try self.regenerate(wrap_width);
                 return;
             }
         }
@@ -93,34 +98,37 @@ pub fn GuiText(comptime TextRetriever: type) type {
             return getText(&self.text_retriever);
         }
 
-        fn regenerate(self: *Self, alloc: Allocator, wrap_width: u31) !void {
+        fn regenerate(self: *Self, wrap_width: u31) !void {
             const text = getText(&self.text_retriever);
             const text_layout = try self.shared.text_renderer.layoutText(
-                alloc,
+                self.alloc.heap.general(),
                 text,
                 self.shared.ttf.*,
                 wrap_width,
             );
-            errdefer text_layout.deinit(alloc);
+            errdefer text_layout.deinit(self.alloc.heap.general());
 
-            const text_buffer = try self.shared.text_renderer.makeTextBuffer(
-                alloc,
+            try self.shared.text_renderer.updateTextBuffer(
+                // FIXME: As we render text, the glyph atlas needs to update
+                // its internal storage for where individual glyphs are. This
+                // is a shared resource between all gui texts, so we use the
+                // shared allocator
+                //
+                // FIXME: Surely managing all of this externally is not worth
+                // the 16 bytes we save in the text renderer
+                self.shared.alloc,
+                self.shared.scratch_alloc,
+                self.shared.scratch_gl,
                 text_layout,
                 self.shared.ttf.*,
                 self.shared.distance_field_generator.*,
+                &self.buffer,
             );
-            errdefer text_buffer.deinit();
 
-            const duped_text = try alloc.dupe(u8, text);
-            errdefer alloc.free(duped_text);
-
-            self.layout.deinit(alloc);
-            self.buffer.deinit();
-            alloc.free(self.text);
+            self.layout.deinit(self.alloc.heap.general());
 
             self.layout = text_layout;
-            self.buffer = text_buffer;
-            self.text = duped_text;
+            try self.text.setContents(text);
             self.wrap_width = wrap_width;
         }
     };

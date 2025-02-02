@@ -36,7 +36,7 @@ pub fn ObjectListRetriever(comptime Ctx: type) type {
         pub fn getText(self: @This(), idx: usize) []const u8 {
             var it = self.app.objects.idIter();
             const object_id = idxToId(ObjectId, idx, &it);
-            return self.app.objects.get(object_id).name;
+            return self.app.objects.get(object_id).name.items;
         }
     };
 }

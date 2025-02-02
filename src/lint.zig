@@ -11,6 +11,12 @@ const obj_mod = sphimp.object;
 const stbiw = @cImport({
     @cInclude("stb_image_write.h");
 });
+const sphalloc = @import("sphalloc");
+const Sphalloc = sphalloc.Sphalloc;
+const ScratchAlloc = sphalloc.ScratchAlloc;
+const sphrender = @import("sphrender");
+const RenderAlloc = sphrender.RenderAlloc;
+const GlAlloc = sphrender.GlAlloc;
 
 pub const EglContext = struct {
     display: egl.EGLDisplay,
@@ -76,8 +82,8 @@ pub fn writeDummyImage(alloc: Allocator, path: [:0]const u8) !void {
 pub fn inputOnCanvas(app: *App) !void {
     const selected_object = app.objects.get(app.input_state.selected_object);
     var new_name_buf: [1024]u8 = undefined;
-    const new_name = try std.fmt.bufPrint(&new_name_buf, "{s}1", .{selected_object.name});
-    try app.updateSelectedObjectName(new_name);
+    const new_name = try std.fmt.bufPrint(&new_name_buf, "{s}1", .{selected_object.name.items});
+    app.updateSelectedObjectName(new_name);
 
     // Try dragging some stuff around
     try app.setMousePos(300, 300);
@@ -178,19 +184,25 @@ fn loadFonts(app: *App) !void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        if (gpa.deinit() != .ok) {
-            std.process.exit(1);
-        }
-    }
+    var root_alloc: Sphalloc = undefined;
+    try root_alloc.initPinned("root");
+    defer root_alloc.deinit();
 
-    const alloc = gpa.allocator();
+    const alloc = root_alloc.general();
+    const scratch_buf = try alloc.alloc(u8, 10 * 1024 * 1024);
+    var scratch_alloc = ScratchAlloc.init(scratch_buf);
 
     var egl_context = try EglContext.init();
     defer egl_context.deinit();
 
-    var app = try App.init(alloc, 640, 480);
+    var root_gl_alloc = try GlAlloc.init(&root_alloc);
+    defer root_gl_alloc.reset();
+
+    const root_render_alloc = RenderAlloc.init(&root_alloc, &root_gl_alloc);
+
+    const scratch_gl = try root_gl_alloc.makeSubAlloc(&root_alloc);
+
+    var app = try App.init(root_render_alloc, &scratch_alloc, scratch_gl, 640, 480);
     defer app.deinit();
 
     var tmpdir = std.testing.tmpDir(.{});
@@ -253,6 +265,7 @@ pub fn main() !void {
 
     var it = app.objects.idIter();
     while (it.next()) |i| {
+        scratch_gl.reset();
         app.setSelectedObject(i);
         try inputOnCanvas(&app);
     }
@@ -263,11 +276,12 @@ pub fn main() !void {
     try app.save(save_path);
     app.deinit();
 
-    app = try App.init(alloc, 640, 480);
+    app = try App.init(root_render_alloc, &scratch_alloc, scratch_gl, 640, 480);
     try app.load(save_path);
 
     it = app.objects.idIter();
     while (it.next()) |i| {
+        scratch_gl.reset();
         app.setSelectedObject(i);
         try inputOnCanvas(&app);
     }

@@ -6,6 +6,7 @@ const sphmath = @import("sphmath");
 const Uniform = sphrender.Uniform;
 const ResolvedUniformValue = sphrender.ResolvedUniformValue;
 const ReservedUniformValue = sphrender.ReservedUniformValue;
+const GlAlloc = @import("GlAlloc.zig");
 
 pub fn Program(comptime Vertex: type, comptime KnownUniforms: type) type {
     const num_known_uniforms = std.meta.fields(KnownUniforms).len;
@@ -18,9 +19,8 @@ pub fn Program(comptime Vertex: type, comptime KnownUniforms: type) type {
 
         const Self = @This();
 
-        pub fn init(vs: [:0]const u8, fs: [:0]const u8) !Self {
-            const program = try sphrender.compileLinkProgram(vs, fs);
-            errdefer gl.glDeleteProgram(program);
+        pub fn init(gl_alloc: *GlAlloc, vs: [:0]const u8, fs: [:0]const u8) !Self {
+            const program = try sphrender.compileLinkProgram(gl_alloc, vs, fs);
 
             var uniform_it = try sphrender.ProgramUniformIt.init(program);
             var known_uniform_locations: UniformLocations = .{null} ** num_known_uniforms;
@@ -39,12 +39,8 @@ pub fn Program(comptime Vertex: type, comptime KnownUniforms: type) type {
             };
         }
 
-        pub fn deinit(self: Self) void {
-            gl.glDeleteProgram(self.program);
-        }
-
-        pub fn makeBuffer(self: Self, initial_data: []const Vertex) Buffer(Vertex) {
-            return Buffer(Vertex).init(self.program, initial_data);
+        pub fn makeBuffer(self: Self, gl_alloc: *GlAlloc, initial_data: []const Vertex) !Buffer(Vertex) {
+            return try Buffer(Vertex).init(gl_alloc, self.program, initial_data);
         }
 
         pub fn unknownUniforms(self: Self, alloc: Allocator) !UnknownUniforms {
@@ -129,7 +125,7 @@ pub fn Buffer(comptime Elem: type) type {
 
         const binding_index = 0;
 
-        pub fn init(program: gl.GLuint, initial_data: []const Elem) Self {
+        pub fn init(gl_alloc: *GlAlloc, program: gl.GLuint, initial_data: []const Elem) !Self {
             const fields = std.meta.fields(Elem);
             var field_locs: [fields.len]gl.GLint = undefined;
 
@@ -137,13 +133,11 @@ pub fn Buffer(comptime Elem: type) type {
                 field_locs[i] = gl.glGetAttribLocation(program, elem.name);
             }
 
-            var vertex_buffer: gl.GLuint = 0;
-            gl.glCreateBuffers(1, &vertex_buffer);
+            const vertex_buffer = try gl_alloc.createBuffer();
 
             gl.glNamedBufferData(vertex_buffer, @intCast(initial_data.len * elem_stride), initial_data.ptr, gl.GL_STATIC_DRAW);
 
-            var vertex_array: gl.GLuint = 0;
-            gl.glCreateVertexArrays(1, &vertex_array);
+            const vertex_array = try gl_alloc.createArray();
 
             gl.glVertexArrayVertexBuffer(vertex_array, binding_index, vertex_buffer, 0, elem_stride);
 
@@ -172,11 +166,6 @@ pub fn Buffer(comptime Elem: type) type {
                 .vertex_buffer = vertex_buffer,
                 .len = initial_data.len,
             };
-        }
-
-        pub fn deinit(self: Self) void {
-            gl.glDeleteBuffers(1, &self.vertex_buffer);
-            gl.glDeleteVertexArrays(1, &self.vertex_array);
         }
 
         pub fn updateBuffer(self: *Self, points: []const Elem) void {

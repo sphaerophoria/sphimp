@@ -3,6 +3,8 @@ const Allocator = std.mem.Allocator;
 const Renderer = @import("Renderer.zig");
 const sphrender = @import("sphrender");
 const sphmath = @import("sphmath");
+const GlAlloc = sphrender.GlAlloc;
+const RenderAlloc = sphrender.RenderAlloc;
 
 pub const Save = struct {
     name: []const u8,
@@ -14,6 +16,7 @@ pub const BrushId = struct { value: usize };
 
 pub fn ShaderStorage(comptime Id: type) type {
     return struct {
+        alloc: RenderAlloc,
         storage: std.ArrayListUnmanaged(Item) = .{},
         const Self = @This();
 
@@ -45,14 +48,6 @@ pub fn ShaderStorage(comptime Id: type) type {
             buffer: sphrender.xyuvt_program.Buffer,
             fs_source: [:0]const u8,
 
-            fn deinit(self: *Item, alloc: Allocator) void {
-                alloc.free(self.name);
-                alloc.free(self.fs_source);
-                self.buffer.deinit();
-                self.uniforms.deinit(alloc);
-                self.program.deinit();
-            }
-
             fn save(self: Item) Save {
                 return .{
                     .name = self.name,
@@ -61,25 +56,21 @@ pub fn ShaderStorage(comptime Id: type) type {
             }
         };
 
-        pub fn deinit(self: *Self, alloc: Allocator) void {
-            for (self.storage.items) |*shader| {
-                shader.deinit(alloc);
-            }
-            self.storage.deinit(alloc);
-        }
-
         pub fn idIter(self: Self) ShaderIdIterator {
             return .{ .max = self.storage.items.len };
         }
 
-        pub fn addShader(self: *Self, alloc: Allocator, name: []const u8, fs_source: [:0]const u8) !Id {
+        // FIXME: Think about lifetimes a little harder
+        pub fn addShader(self: *Self, name: []const u8, fs_source: [:0]const u8) !Id {
+            // FIXME: If anything in here fails, we have allocated things that
+            // aren't in the shader storage. This is a memory leak. If someone
+            // spam adds shaders that are invalid, we will not reclaim that
+            // memory until the entire shader storage is removed
             const id = Id{ .value = self.storage.items.len };
 
+            const alloc = self.alloc.heap.general();
             const name_duped = try alloc.dupe(u8, name);
-            errdefer alloc.free(name_duped);
-
-            const program = try Program.init(fs_source);
-            errdefer program.deinit();
+            const program = try Program.init(self.alloc.gl, fs_source);
 
             const duped_fs_source = try alloc.dupeZ(u8, fs_source);
             errdefer alloc.free(duped_fs_source);
@@ -87,8 +78,7 @@ pub fn ShaderStorage(comptime Id: type) type {
             const unknown_uniforms = try program.unknownUniforms(alloc);
             errdefer unknown_uniforms.deinit(alloc);
 
-            const buffer = program.makeFullScreenPlane();
-            errdefer buffer.deinit();
+            const buffer = try program.makeFullScreenPlane(self.alloc.gl);
 
             try self.storage.append(alloc, .{
                 .name = name_duped,

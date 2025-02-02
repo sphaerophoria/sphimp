@@ -11,6 +11,12 @@ const GlyphAtlas = sphtext.GlyphAtlas;
 const TextRenderer = sphtext.TextRenderer;
 const ttf_mod = sphtext.ttf;
 const sphrender = @import("sphrender");
+const sphutil = @import("sphutil");
+const RuntimeBoundedArray = sphutil.RuntimeBoundedArray;
+const GlAlloc = sphrender.GlAlloc;
+const RenderAlloc = sphrender.RenderAlloc;
+const sphalloc = @import("sphalloc");
+const ScratchAlloc = sphalloc.ScratchAlloc;
 
 const ShaderStorage = shader_storage.ShaderStorage;
 const ShaderId = shader_storage.ShaderId;
@@ -22,8 +28,9 @@ const Vec2 = sphmath.Vec2;
 pub const PixelDims = @Vector(2, usize);
 
 pub const Object = struct {
-    name: []u8,
+    name: RuntimeBoundedArray(u8),
     data: Data,
+    alloc: RenderAlloc,
 
     pub const Data = union(enum) {
         filesystem: FilesystemObject,
@@ -35,23 +42,12 @@ pub const Object = struct {
         text: TextObject,
     };
 
-    pub fn deinit(self: *Object, alloc: Allocator) void {
-        alloc.free(self.name);
-        switch (self.data) {
-            .filesystem => |*f| f.deinit(alloc),
-            .composition => |*c| c.deinit(alloc),
-            .shader => |*s| s.deinit(alloc),
-            .path => |*p| p.deinit(alloc),
-            .generated_mask => |*g| g.deinit(),
-            .drawing => |*d| d.deinit(alloc),
-            .text => |*t| t.deinit(alloc),
-        }
+    pub fn deinit(self: *Object) void {
+        self.alloc.deinit();
     }
 
-    pub fn updateName(self: *Object, alloc: Allocator, name: []const u8) !void {
-        const duped_name = try alloc.dupe(u8, name);
-        alloc.free(self.name);
-        self.name = duped_name;
+    pub fn updateName(self: *Object, name: []const u8) void {
+        self.name.setContentsTrunc(name);
     }
 
     pub fn saveLeaky(self: Object, alloc: Allocator, id: usize) !SaveObject {
@@ -78,24 +74,23 @@ pub const Object = struct {
         };
 
         return .{
-            .name = self.name,
+            .name = self.name.items,
             .id = id,
             .data = data,
         };
     }
 
-    pub fn load(alloc: Allocator, save_obj: SaveObject, shaders: ShaderStorage(ShaderId), brushes: ShaderStorage(BrushId), path_render_program: Renderer.PathRenderProgram) !Object {
+    pub fn load(alloc: RenderAlloc, save_obj: SaveObject, shaders: ShaderStorage(ShaderId), brushes: ShaderStorage(BrushId), path_render_program: Renderer.PathRenderProgram) !Object {
         const data: Data = switch (save_obj.data) {
             .filesystem => |s| blk: {
                 break :blk .{
-                    .filesystem = try FilesystemObject.load(alloc, s),
+                    .filesystem = try FilesystemObject.load(alloc.heap.arena(), alloc.gl, s),
                 };
             },
             .composition => |c| blk: {
                 var objects = std.ArrayListUnmanaged(CompositionObject.ComposedObject){};
-                errdefer objects.deinit(alloc);
 
-                try objects.appendSlice(alloc, c);
+                try objects.appendSlice(alloc.heap.general(), c);
                 break :blk .{
                     .composition = .{
                         .objects = objects,
@@ -108,8 +103,7 @@ pub const Object = struct {
                     std.debug.assert(@sizeOf(ObjectId) == @sizeOf(usize));
                 }
 
-                var shader_object = try ShaderObject.init(alloc, .{ .value = s.shader_id }, shaders, s.primary_input_idx);
-                errdefer shader_object.deinit(alloc);
+                var shader_object = try ShaderObject.init(alloc.heap.general(), .{ .value = s.shader_id }, shaders, s.primary_input_idx);
 
                 for (0..s.bindings.len) |idx| {
                     try shader_object.setUniform(idx, s.bindings[idx]);
@@ -118,20 +112,20 @@ pub const Object = struct {
             },
             .path => |p| blk: {
                 break :blk .{
-                    .path = try PathObject.init(alloc, p.points, .{ .value = p.display_object }, path_render_program.makeBuffer()),
+                    .path = try PathObject.init(alloc.heap.general(), p.points, .{ .value = p.display_object }, try path_render_program.makeBuffer(alloc.gl)),
                 };
             },
             .generated_mask => |source| .{
-                .generated_mask = GeneratedMaskObject.initNullTexture(.{ .value = source }),
+                .generated_mask = try GeneratedMaskObject.initEmptyTexture(.{ .value = source }, alloc.gl),
             },
             .drawing => |d| blk: {
                 var drawing_object = try DrawingObject.init(
-                    alloc,
+                    alloc.heap.general(),
+                    alloc.gl,
                     .{ .value = d.display_object },
                     .{ .value = d.brush },
                     brushes,
                 );
-                errdefer drawing_object.deinit(alloc);
 
                 for (0..d.bindings.len) |idx| {
                     try drawing_object.setUniform(idx, d.bindings[idx]);
@@ -141,10 +135,9 @@ pub const Object = struct {
                     var stroke = DrawingObject.Stroke{
                         .points = .{},
                     };
-                    errdefer stroke.deinit(alloc);
 
-                    try stroke.points.appendSlice(alloc, saved_stroke);
-                    try drawing_object.strokes.append(alloc, stroke);
+                    try stroke.points.appendSlice(alloc.heap.general(), saved_stroke);
+                    try drawing_object.strokes.append(alloc.heap.general(), stroke);
                 }
 
                 break :blk .{
@@ -152,16 +145,22 @@ pub const Object = struct {
                 };
             },
             .text => |t| blk: {
-                var text_object = try TextObject.init(alloc, .{ .value = t.font_id });
-                errdefer text_object.deinit(alloc);
+                var text_object = try TextObject.init(alloc.gl, .{ .value = t.font_id });
 
-                text_object.current_text = try alloc.dupe(u8, t.current_text);
+                text_object.current_text = try alloc.heap.general().dupe(u8, t.current_text);
                 break :blk .{ .text = text_object };
             },
         };
 
+        // FIXME: Deduplicate size with app.zig
+        // FIXME
+        // FIXME
+        var name = try RuntimeBoundedArray(u8).init(alloc.heap.arena(), 100);
+        name.setContentsTrunc(save_obj.name);
+
         return .{
-            .name = try alloc.dupe(u8, save_obj.name),
+            .alloc = alloc,
+            .name = name,
             .data = data,
         };
     }
@@ -372,10 +371,6 @@ pub const CompositionObject = struct {
     pub fn removeObj(self: *CompositionObject, id: CompositionIdx) void {
         _ = self.objects.swapRemove(id.value);
     }
-
-    pub fn deinit(self: *CompositionObject, alloc: Allocator) void {
-        self.objects.deinit(alloc);
-    }
 };
 
 pub const ShaderObject = struct {
@@ -398,10 +393,6 @@ pub const ShaderObject = struct {
             .program = id,
             .bindings = bindings,
         };
-    }
-
-    pub fn deinit(self: *ShaderObject, alloc: Allocator) void {
-        alloc.free(self.bindings);
     }
 
     pub fn setUniform(self: *ShaderObject, idx: usize, val: Renderer.UniformValue) !void {
@@ -436,15 +427,13 @@ pub const FilesystemObject = struct {
 
     texture: Renderer.Texture,
 
-    pub fn load(alloc: Allocator, path: [:0]const u8) !FilesystemObject {
+    pub fn load(alloc: Allocator, gl_alloc: *GlAlloc, path: [:0]const u8) !FilesystemObject {
         const image = try StbImage.init(path);
         defer image.deinit();
 
-        const texture = sphrender.makeTextureFromRgba(image.data, image.width);
-        errdefer texture.deinit();
+        const texture = try sphrender.makeTextureFromRgba(gl_alloc, image.data, image.width);
 
         const source = try alloc.dupeZ(u8, path);
-        errdefer alloc.free(source);
 
         return .{
             .texture = texture,
@@ -452,11 +441,6 @@ pub const FilesystemObject = struct {
             .height = image.calcHeight(),
             .source = source,
         };
-    }
-
-    pub fn deinit(self: FilesystemObject, alloc: Allocator) void {
-        self.texture.deinit();
-        alloc.free(self.source);
     }
 };
 
@@ -469,8 +453,6 @@ pub const PathObject = struct {
     render_buffer: Renderer.PathRenderBuffer,
 
     pub fn init(alloc: Allocator, initial_points: []const Vec2, display_object: ObjectId, render_buffer: Renderer.PathRenderBuffer) !PathObject {
-        errdefer render_buffer.deinit();
-
         var points = try std.ArrayListUnmanaged(Vec2).initCapacity(alloc, initial_points.len);
         errdefer points.deinit(alloc);
 
@@ -494,11 +476,6 @@ pub const PathObject = struct {
         self.points.items[idx.value] += movement;
         self.render_buffer.updatePoint(idx.value, self.points.items[idx.value]);
     }
-
-    pub fn deinit(self: *PathObject, alloc: Allocator) void {
-        self.points.deinit(alloc);
-        self.render_buffer.deinit();
-    }
 };
 
 pub const GeneratedMaskObject = struct {
@@ -506,31 +483,49 @@ pub const GeneratedMaskObject = struct {
 
     texture: Renderer.Texture,
 
-    pub fn initNullTexture(source: ObjectId) GeneratedMaskObject {
+    pub fn initEmptyTexture(source: ObjectId, gl_alloc: *GlAlloc) !GeneratedMaskObject {
         return .{
             .source = source,
-            .texture = Renderer.Texture.invalid,
+            .texture = try sphrender.makeTextureCommon(gl_alloc),
         };
     }
 
-    pub fn generate(alloc: Allocator, source: ObjectId, width: usize, height: usize, path_points: []const Vec2) !GeneratedMaskObject {
-        const mask = try alloc.alloc(u8, width * height);
-        defer alloc.free(mask);
+    pub fn generate(scratch_alloc: *ScratchAlloc, gl_alloc: *GlAlloc, source: ObjectId, width: usize, height: usize, path_points: []const Vec2) !GeneratedMaskObject {
+        const checkpoint = scratch_alloc.checkpoint();
+        defer scratch_alloc.restore(checkpoint);
 
+        const mask = try generateCpuMask(scratch_alloc, width, height, path_points);
+        const texture = try sphrender.makeTextureFromR(gl_alloc, mask, width);
+
+        return .{
+            .texture = texture,
+            .source = source,
+        };
+    }
+
+    pub fn regenerate(self: *GeneratedMaskObject, scratch_alloc: *ScratchAlloc, width: usize, height: usize, path_points: []const Vec2) !void {
+        const checkpoint = scratch_alloc.checkpoint();
+        defer scratch_alloc.restore(checkpoint);
+
+        std.debug.assert(self.texture.inner != Renderer.Texture.invalid.inner);
+
+        const mask = try generateCpuMask(scratch_alloc, width, height, path_points);
+        sphrender.setTextureFromR(self.texture, mask, width);
+    }
+
+    fn generateCpuMask(scratch_alloc: *ScratchAlloc, width: usize, height: usize, path_points: []const Vec2) ![]const u8 {
+        const mask = try scratch_alloc.allocator().alloc(u8, width * height);
         @memset(mask, 0);
+
+        const checkpoint = scratch_alloc.checkpoint();
+        defer scratch_alloc.restore(checkpoint);
 
         const bb = findBoundingBox(path_points, width, height);
         const width_i64: i64 = @intCast(width);
 
-        var arena = std.heap.ArenaAllocator.init(alloc);
-        defer arena.deinit();
-
         for (bb.y_start..bb.y_end) |y| {
-            _ = arena.reset(.retain_capacity);
-            const arena_alloc = arena.allocator();
-
-            const intersection_points = try findIntersectionPoints(arena_alloc, path_points, y, width, height);
-            defer arena_alloc.free(intersection_points);
+            scratch_alloc.restore(checkpoint);
+            const intersection_points = try findIntersectionPoints(scratch_alloc.allocator(), path_points, y, width, height);
 
             // Assume we start outside the polygon
             const row_start = width * y;
@@ -546,11 +541,7 @@ pub const GeneratedMaskObject = struct {
             }
         }
 
-        const texture = sphrender.makeTextureFromR(mask, width);
-        return .{
-            .texture = texture,
-            .source = source,
-        };
+        return mask;
     }
 
     const BoundingBox = struct {
@@ -623,10 +614,6 @@ pub const GeneratedMaskObject = struct {
         std.mem.sort(i64, intersection_points.items, {}, lessThan);
         return try intersection_points.toOwnedSlice();
     }
-
-    pub fn deinit(self: GeneratedMaskObject) void {
-        self.texture.deinit();
-    }
 };
 
 pub const DrawingObject = struct {
@@ -680,7 +667,7 @@ pub const DrawingObject = struct {
 
     brush: BrushId,
     bindings: []Renderer.UniformValue,
-    distance_field: Renderer.Texture = Renderer.Texture.invalid,
+    distance_field: Renderer.Texture,
 
     pub const Save = struct {
         display_object: usize,
@@ -689,7 +676,7 @@ pub const DrawingObject = struct {
         bindings: []Renderer.UniformValue,
     };
 
-    pub fn init(alloc: Allocator, display_object: ObjectId, brush_id: BrushId, brushes: ShaderStorage(BrushId)) !DrawingObject {
+    pub fn init(alloc: Allocator, gl_alloc: *GlAlloc, display_object: ObjectId, brush_id: BrushId, brushes: ShaderStorage(BrushId)) !DrawingObject {
         const brush = brushes.get(brush_id);
         const uniforms = brush.uniforms.items;
         const bindings = try alloc.alloc(Renderer.UniformValue, uniforms.len);
@@ -702,23 +689,26 @@ pub const DrawingObject = struct {
             .display_object = display_object,
             .brush = brush_id,
             .bindings = bindings,
+            .distance_field = try sphrender.makeTextureCommon(gl_alloc),
         };
     }
 
     pub fn addStroke(
         self: *DrawingObject,
         alloc: Allocator,
+        scratch_gl: *GlAlloc,
         pos: Vec2,
         objects: *Objects,
         distance_field_renderer: sphrender.DistanceFieldGenerator,
     ) !void {
         try self.strokes.append(alloc, Stroke{});
-        try self.addSample(alloc, pos, objects, distance_field_renderer);
+        try self.addSample(alloc, scratch_gl, pos, objects, distance_field_renderer);
     }
 
     pub fn addSample(
         self: *DrawingObject,
         alloc: Allocator,
+        scratch_gl: *GlAlloc,
         pos: Vec2,
         objects: *Objects,
         distance_field_renderer: sphrender.DistanceFieldGenerator,
@@ -726,12 +716,13 @@ pub const DrawingObject = struct {
         const last_stroke = &self.strokes.items[self.strokes.items.len - 1];
         try last_stroke.addPoint(alloc, pos);
 
-        try self.generateDistanceField(alloc, objects, distance_field_renderer);
+        try self.generateDistanceField(alloc, scratch_gl, objects, distance_field_renderer);
     }
 
     pub fn generateDistanceField(
         self: *DrawingObject,
         alloc: Allocator,
+        scratch_gl: *GlAlloc,
         objects: *Objects,
         distance_field_renderer: sphrender.DistanceFieldGenerator,
     ) !void {
@@ -739,16 +730,15 @@ pub const DrawingObject = struct {
 
         const dims = objects.get(self.display_object).dims(objects);
 
-        const new_distance_field = try distance_field_renderer.generateDistanceField(
+        try distance_field_renderer.renderDistanceFieldToTexture(
             alloc,
+            scratch_gl,
             &vertex_array_it,
             Renderer.Texture.invalid,
             @intCast(dims[0]),
             @intCast(dims[1]),
+            self.distance_field,
         );
-
-        self.distance_field.deinit();
-        self.distance_field = new_distance_field;
     }
 
     pub fn hasPoints(self: DrawingObject) bool {
@@ -787,14 +777,6 @@ pub const DrawingObject = struct {
             .bindings = self.bindings,
         };
     }
-
-    fn deinit(self: *DrawingObject, alloc: Allocator) void {
-        for (self.strokes.items) |*stroke| {
-            stroke.deinit(alloc);
-        }
-        self.strokes.deinit(alloc);
-        alloc.free(self.bindings);
-    }
 };
 
 pub const TextObject = struct {
@@ -803,67 +785,48 @@ pub const TextObject = struct {
 
     renderer: TextRenderer,
     layout: ?TextRenderer.TextLayout = null,
-    buffer: ?TextRenderer.Buffer = null,
+    buffer: TextRenderer.Buffer,
 
     const default_point_size = 64.0;
 
-    pub fn init(alloc: Allocator, font_id: FontStorage.FontId) !TextObject {
-        const renderer = try TextRenderer.init(alloc, default_point_size);
+    pub fn init(gl_alloc: *GlAlloc, font_id: FontStorage.FontId) !TextObject {
+        const renderer = try TextRenderer.init(gl_alloc, default_point_size);
 
+        const buffer = try renderer.program.makeFullScreenPlane(gl_alloc);
         return .{
             .font = font_id,
             .renderer = renderer,
+            .buffer = buffer,
             .current_text = &.{},
         };
     }
 
-    pub fn deinit(self: *TextObject, alloc: Allocator) void {
+    pub fn update(self: *TextObject, alloc: Allocator, scratch_alloc: *ScratchAlloc, scratch_gl: *GlAlloc, text: []const u8, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
+        const new_text = try alloc.dupe(u8, text);
+
         alloc.free(self.current_text);
-        self.renderer.deinit(alloc);
-        if (self.buffer) |b| b.deinit();
-        if (self.layout) |l| l.deinit(alloc);
+        self.current_text = new_text;
+
+        try self.regenerate(alloc, scratch_alloc, scratch_gl, fonts, distance_field_renderer);
     }
 
-    pub fn update(self: *TextObject, alloc: Allocator, text: []const u8, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
-        var new_text = try alloc.dupe(u8, text);
-        defer alloc.free(new_text);
-        std.mem.swap([]const u8, &self.current_text, &new_text);
-        // Put it back
-        errdefer std.mem.swap([]const u8, &self.current_text, &new_text);
-
-        try self.regenerate(alloc, fonts, distance_field_renderer);
-    }
-
-    pub fn updateFont(self: *TextObject, alloc: Allocator, font_id: FontStorage.FontId, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
-        const old_font = self.font;
+    pub fn updateFont(self: *TextObject, alloc: Allocator, scratch_alloc: *ScratchAlloc, scratch_gl: *GlAlloc, font_id: FontStorage.FontId, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
         self.font = font_id;
-        errdefer {
-            self.font = old_font;
-        }
-
-        var old_renderer = self.renderer;
-        defer old_renderer.deinit(alloc);
-        self.renderer = try TextRenderer.init(alloc, old_renderer.point_size);
-        errdefer std.mem.swap(TextRenderer, &old_renderer, &self.renderer);
-
-        try self.regenerate(alloc, fonts, distance_field_renderer);
+        try self.renderer.resetAtlas();
+        try self.regenerate(alloc, scratch_alloc, scratch_gl, fonts, distance_field_renderer);
     }
 
-    pub fn updateFontSize(self: *TextObject, alloc: Allocator, size: f32, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
-        var old_renderer = self.renderer;
-        defer old_renderer.deinit(alloc);
-        self.renderer = try TextRenderer.init(alloc, size);
-        errdefer std.mem.swap(TextRenderer, &old_renderer, &self.renderer);
-
-        try self.regenerate(alloc, fonts, distance_field_renderer);
+    pub fn updateFontSize(self: *TextObject, alloc: Allocator, scratch_alloc: *ScratchAlloc, scratch_gl: *GlAlloc, size: f32, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
+        self.renderer.point_size = size;
+        try self.renderer.resetAtlas();
+        try self.regenerate(alloc, scratch_alloc, scratch_gl, fonts, distance_field_renderer);
     }
 
-    pub fn regenerate(self: *TextObject, alloc: Allocator, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
+    pub fn regenerate(self: *TextObject, alloc: Allocator, scratch_alloc: *ScratchAlloc, scratch_gl: *GlAlloc, fonts: FontStorage, distance_field_renderer: sphrender.DistanceFieldGenerator) !void {
         if (self.current_text.len < 1) {
-            if (self.buffer) |b| b.deinit();
             if (self.layout) |l| l.deinit(alloc);
 
-            self.buffer = null;
+            self.buffer.updateBuffer(&.{});
             self.layout = null;
             return;
         }
@@ -877,12 +840,9 @@ pub const TextObject = struct {
         );
         errdefer layout.deinit(alloc);
 
-        const buffer = try self.renderer.makeTextBuffer(alloc, layout, ttf.*, distance_field_renderer);
+        try self.renderer.updateTextBuffer(alloc, scratch_alloc, scratch_gl, layout, ttf.*, distance_field_renderer, &self.buffer);
 
-        if (self.buffer) |b| b.deinit();
         if (self.layout) |l| l.deinit(alloc);
-
-        self.buffer = buffer;
         self.layout = layout;
     }
 
@@ -929,30 +889,46 @@ pub const Objects = struct {
     // index. Internal impl just linearly scans for matching hash anyways, so
     // why use it
     const ObjectStorage = std.AutoArrayHashMapUnmanaged(ObjectId, Object);
+
+    alloc: sphrender.RenderAlloc,
     inner: ObjectStorage = .{},
     next_id: usize = 0,
 
-    pub fn load(alloc: Allocator, data: []SaveObject, shaders: ShaderStorage(ShaderId), brushes: ShaderStorage(BrushId), path_render_program: Renderer.PathRenderProgram) !Objects {
-        var objects = ObjectStorage{};
-        errdefer freeObjectList(alloc, &objects);
+    pub fn init(alloc: sphrender.RenderAlloc) Objects {
+        return .{
+            .alloc = alloc,
+        };
+    }
 
-        try objects.ensureTotalCapacity(alloc, @intCast(data.len));
+    pub fn load(alloc: sphrender.RenderAlloc, data: []SaveObject, shaders: ShaderStorage(ShaderId), brushes: ShaderStorage(BrushId), path_render_program: Renderer.PathRenderProgram) !Objects {
+        var objects = ObjectStorage{};
+
+        const gpa = alloc.heap.general();
+
+        try objects.ensureTotalCapacity(gpa, @intCast(data.len));
 
         var max_id: usize = 0;
         for (data) |saved_object| {
-            const object = try Object.load(alloc, saved_object, shaders, brushes, path_render_program);
-            try objects.put(alloc, .{ .value = saved_object.id }, object);
+            // FIXME: consistent names with app constructors
+            const obj_alloc = switch (saved_object.data) {
+                .filesystem => try alloc.makeSubAlloc("fs_obj"),
+                .composition => try alloc.makeSubAlloc("composition object"),
+                .shader => try alloc.makeSubAlloc("shader object"),
+                .path => try alloc.makeSubAlloc("path object"),
+                .generated_mask => try alloc.makeSubAlloc("mask object"),
+                .drawing => try alloc.makeSubAlloc("drawing object"),
+                .text => try alloc.makeSubAlloc("text object"),
+            };
+            const object = try Object.load(obj_alloc, saved_object, shaders, brushes, path_render_program);
+            try objects.put(gpa, .{ .value = saved_object.id }, object);
             max_id = @max(max_id, saved_object.id);
         }
 
         return Objects{
+            .alloc = alloc,
             .inner = objects,
             .next_id = max_id + 1,
         };
-    }
-
-    pub fn deinit(self: *Objects, alloc: Allocator) void {
-        freeObjectList(alloc, &self.inner);
     }
 
     pub fn get(self: *Objects, id: ObjectId) *Object {
@@ -996,15 +972,15 @@ pub const Objects = struct {
         return object_saves;
     }
 
-    pub fn remove(self: *Objects, alloc: Allocator, id: ObjectId) void {
+    pub fn remove(self: *Objects, id: ObjectId) void {
         var item = self.inner.fetchOrderedRemove(id) orelse return;
-        item.value.deinit(alloc);
+        item.value.deinit();
     }
 
-    pub fn append(self: *Objects, alloc: Allocator, object: Object) !void {
+    pub fn append(self: *Objects, object: Object) !void {
         const id = ObjectId{ .value = self.next_id };
         self.next_id += 1;
-        try self.inner.put(alloc, id, object);
+        try self.inner.put(self.alloc.heap.general(), id, object);
     }
 
     pub fn isDependedUpon(self: *Objects, id: ObjectId) bool {
@@ -1027,13 +1003,6 @@ pub const Objects = struct {
         }
 
         return false;
-    }
-
-    fn freeObjectList(alloc: Allocator, objects: *ObjectStorage) void {
-        for (objects.values()) |*object| {
-            object.deinit(alloc);
-        }
-        objects.deinit(alloc);
     }
 };
 

@@ -7,3 +7,5 @@ pub const dependency_loop = @import("dependency_loop.zig");
 pub const object = @import("object.zig");
 pub const shader_storage = @import("shader_storage.zig");
 pub const sphimp = @import("sphimp.zig");
+// FIXME: Find somewhere to put this
+pub const MemoryTracker = @import("MemoryTracker.zig");

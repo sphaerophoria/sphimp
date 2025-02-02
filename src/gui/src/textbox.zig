@@ -35,18 +35,18 @@ const TextboxAction = union(enum) {
     delete_char: usize,
 };
 
+const EventList = std.BoundedArray(TextboxAction, 100);
+
 pub const TextboxNotifier = struct {
-    alloc: Allocator,
-    channel: *std.ArrayListUnmanaged(TextboxAction),
+    channel: *EventList,
 
     pub fn notify(self: TextboxNotifier, action: TextboxAction) !void {
-        try self.channel.append(self.alloc, action);
+        try self.channel.append(action);
     }
 };
 
 fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAction: type) type {
     return struct {
-        alloc: Allocator,
         shared: *const SharedTextboxState,
         text_action: TextAction,
         gui_text: GuiText(TextRetriever),
@@ -62,13 +62,12 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
         //
         // This action list is fed through a TextboxNotifier in Action, and we
         // check actions performed on next update()
-        executed_actions: std.ArrayListUnmanaged(TextboxAction) = .{},
+        executed_actions: EventList = .{},
         focused: bool = false,
 
         const Self = @This();
 
         const widget_vtable = Widget(Action).VTable{
-            .deinit = Self.deinit,
             .render = Self.render,
             .getSize = Self.getSize,
             .update = Self.update,
@@ -76,13 +75,6 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
             .setFocused = Self.setFocused,
             .reset = Self.reset,
         };
-
-        fn deinit(ctx: ?*anyopaque, _: Allocator) void {
-            const self: *Self = @ptrCast(@alignCast(ctx));
-            self.gui_text.deinit(self.alloc);
-            self.executed_actions.deinit(self.alloc);
-            self.alloc.destroy(self);
-        }
 
         fn render(ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -154,14 +146,14 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
         fn update(ctx: ?*anyopaque, _: PixelSize) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
 
-            try self.gui_text.update(self.alloc, std.math.maxInt(u31));
+            try self.gui_text.update(std.math.maxInt(u31));
 
             self.processExternalActions();
             self.updateTextPosition();
         }
 
         fn processExternalActions(self: *Self) void {
-            for (self.executed_actions.items) |action| {
+            for (self.executed_actions.slice()) |action| {
                 switch (action) {
                     .insert_char => |idx| {
                         if (idx <= self.cursor_pos_text_idx) {
@@ -175,7 +167,7 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
                     },
                 }
             }
-            self.executed_actions.clearRetainingCapacity();
+            self.executed_actions.resize(0) catch unreachable;
         }
 
         fn updateTextPosition(self: *Self) void {
@@ -223,9 +215,10 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
 
             var action: ?Action = null;
             if (self.focused) blk: {
-                if (input_state.frame_keys.items.len == 0) break :blk;
+                const frame_keys = input_state.frame_keys.items;
+                if (frame_keys.len == 0) break :blk;
 
-                for (input_state.frame_keys.items) |key| {
+                for (frame_keys) |key| {
                     switch (key.key) {
                         .left_arrow => self.cursor_pos_text_idx = self.cursor_pos_text_idx -| 1,
                         .right_arrow => {
@@ -235,7 +228,7 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
                         else => {},
                     }
                 }
-                action = generateAction(Action, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, input_state.frame_keys.items);
+                action = generateAction(Action, &self.text_action, self.makeNotifier(), self.cursor_pos_text_idx, frame_keys);
             }
 
             return .{
@@ -246,22 +239,19 @@ fn Textbox(comptime Action: type, comptime TextRetriever: type, comptime TextAct
 
         fn makeNotifier(self: *Self) TextboxNotifier {
             return .{
-                .alloc = self.alloc,
                 .channel = &self.executed_actions,
             };
         }
     };
 }
 
-pub fn makeTextbox(comptime Action: type, alloc: Allocator, text_retreiver: anytype, text_action: anytype, shared: *const SharedTextboxState) !Widget(Action) {
+pub fn makeTextbox(comptime Action: type, alloc: gui.GuiAlloc, text_retreiver: anytype, text_action: anytype, shared: *const SharedTextboxState) !Widget(Action) {
     const TB = Textbox(Action, @TypeOf(text_retreiver), @TypeOf(text_action));
-    const box = try alloc.create(TB);
+    const box = try alloc.heap.arena().create(TB);
 
     const new_buffer = try gui_text.guiText(alloc, shared.guitext_shared, text_retreiver);
-    errdefer new_buffer.deinit(alloc);
 
     box.* = .{
-        .alloc = alloc,
         .gui_text = new_buffer,
         .text_action = text_action,
         .cursor_pos_text_idx = new_buffer.text.len,

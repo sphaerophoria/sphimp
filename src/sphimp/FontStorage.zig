@@ -1,5 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const sphutil = @import("sphutil");
+const sphalloc = @import("sphalloc");
+const Sphalloc = sphalloc.Sphalloc;
 
 const sphtext = @import("sphtext");
 const ttf_mod = sphtext.ttf;
@@ -7,6 +10,8 @@ const ttf_mod = sphtext.ttf;
 pub const FontId = struct { value: usize };
 const FontStorage = @This();
 
+// FIXME: Fonts can be fairly large, we should only keep the ones we are
+// actively using loaded
 const FontData = struct {
     ttf_content: []const u8,
     path: [:0]const u8, // relative
@@ -15,21 +20,20 @@ const FontData = struct {
 
 pub const Save = []const u8;
 
-inner: std.ArrayListUnmanaged(FontData) = .{},
+alloc: *Sphalloc,
+inner: sphutil.RuntimeBoundedArray(FontData),
 
-pub fn deinit(self: *FontStorage, alloc: Allocator) void {
-    for (self.inner.items) |*font_data| {
-        font_data.ttf.deinit(alloc);
-        alloc.free(font_data.ttf_content);
-        alloc.free(font_data.path);
-    }
-    self.inner.deinit(alloc);
+pub fn init(alloc: *Sphalloc, max_fonts: usize) !FontStorage {
+    return .{
+        .alloc = alloc,
+        .inner = try sphutil.RuntimeBoundedArray(FontData).init(alloc.arena(), max_fonts),
+    };
 }
 
 // On success, takes ownership of font_data and name
-pub fn append(self: *FontStorage, alloc: Allocator, font_data: []const u8, path: [:0]const u8, ttf: ttf_mod.Ttf) !FontId {
+pub fn append(self: *FontStorage, font_data: []const u8, path: [:0]const u8, ttf: ttf_mod.Ttf) !FontId {
     const next_id = self.inner.items.len;
-    try self.inner.append(alloc, .{ .ttf_content = font_data, .path = path, .ttf = ttf });
+    try self.inner.append(.{ .ttf_content = font_data, .path = path, .ttf = ttf });
     return .{ .value = next_id };
 }
 

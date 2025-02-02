@@ -6,6 +6,9 @@
         .sphmath = .{
             .path = "../sphmath",
         },
+        .sphalloc = .{
+            .path = "../sphalloc",
+        },
     },
     .paths = .{
         "src",

@@ -10,20 +10,14 @@ pub fn Runner(comptime Action: type) type {
 
         const Self = @This();
 
-        pub fn init(alloc: Allocator, widget: gui.Widget(Action)) Self {
-            const input_state = gui.InputState{};
-            errdefer input_state.deinit(alloc);
+        pub fn init(alloc: Allocator, widget: gui.Widget(Action)) !Self {
+            const input_state = try gui.InputState.init(alloc);
 
             return .{
                 .alloc = alloc,
                 .root = widget,
                 .input_state = input_state,
             };
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.root.deinit(self.alloc);
-            self.input_state.deinit(self.alloc);
         }
 
         pub fn step(self: *Self, widget_bounds: gui.PixelBBox, window_size: gui.PixelSize, input_queue: anytype) !?Action {
@@ -35,7 +29,7 @@ pub fn Runner(comptime Action: type) type {
 
             self.input_state.startFrame();
             while (input_queue.readItem()) |action| {
-                try self.input_state.pushInput(self.alloc, action);
+                try self.input_state.pushInput(action);
             }
 
             const window_bounds = gui.PixelBBox{

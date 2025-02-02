@@ -1,4 +1,5 @@
 const std = @import("std");
+const sphalloc = @import("sphalloc");
 const Allocator = std.mem.Allocator;
 const sphrender = @import("sphrender");
 const sphmath = @import("sphmath");
@@ -23,6 +24,8 @@ const sidebar_mod = @import("sphimp_ui/sidebar.zig");
 const UiAction = ui_action.UiAction;
 const UiActionType = ui_action.UiActionType;
 const WindowAction = gui.WindowAction;
+const MemoryWidget = @import("sphimp_ui/MemoryWidget.zig");
+const MemoryTracker = sphimp.MemoryTracker;
 const c = @cImport({
     @cInclude("GLFW/glfw3.h");
 });
@@ -48,6 +51,7 @@ fn keyCallbackGlfw(window: ?*glfwb.GLFWwindow, key: c_int, _: c_int, action: c_i
         glfwb.GLFW_KEY_RIGHT => .right_arrow,
         glfwb.GLFW_KEY_BACKSPACE => .backspace,
         glfwb.GLFW_KEY_DELETE => .delete,
+        glfwb.GLFW_KEY_ESCAPE => .escape,
         else => return,
     };
 
@@ -304,13 +308,18 @@ const background_fragment_shader =
 ;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    var root_alloc: sphalloc.Sphalloc = undefined;
+    try root_alloc.initPinned("root");
+    defer root_alloc.deinit();
 
-    const alloc = gpa.allocator();
+    const scratch_tracker = try root_alloc.makeSubAlloc("scratch");
+    const scratch_buf = try scratch_tracker.arena().alloc(u8, 10 * 1024 * 1024);
+    var scratch_alloc = sphalloc.ScratchAlloc.init(scratch_buf);
 
-    var args = try Args.parse(alloc);
-    defer args.deinit(alloc);
+    const root_gpa = root_alloc.general();
+    const root_arena = root_alloc.arena();
+
+    const args = try Args.parse(root_gpa);
 
     const window_width = 1024;
     const window_height = 600;
@@ -325,7 +334,14 @@ pub fn main() !void {
     sphrender.gl.glBlendFunc(sphrender.gl.GL_SRC_ALPHA, sphrender.gl.GL_ONE_MINUS_SRC_ALPHA);
     sphrender.gl.glEnable(sphrender.gl.GL_BLEND);
 
-    var app = try App.init(alloc, window_width, window_height);
+    var root_gl_alloc = try sphrender.GlAlloc.init(&root_alloc);
+    defer root_gl_alloc.reset();
+
+    const root_render_alloc = sphrender.RenderAlloc.init(&root_alloc, &root_gl_alloc);
+
+    var scratch_gl = try root_gl_alloc.makeSubAlloc(&root_alloc);
+
+    var app = try App.init(try root_render_alloc.makeSubAlloc("App"), &scratch_alloc, scratch_gl, window_width, window_height);
     defer app.deinit();
 
     const background_shader_id = try app.addShaderFromFragmentSource("constant color", background_fragment_shader);
@@ -359,23 +375,37 @@ pub fn main() !void {
         },
     }
 
-    const widget_factory = try gui.widget_factory.widgetFactory(UiAction, alloc);
-    defer widget_factory.deinit();
+    const gui_alloc = try root_render_alloc.makeSubAlloc("gui");
+
+    const widget_state = try gui.widget_factory.widgetState(UiAction, gui_alloc, &scratch_alloc, scratch_gl);
+
+    const widget_factory = widget_state.factory(gui_alloc);
 
     const toplevel_layout = try widget_factory.makeLayout();
     toplevel_layout.cursor.direction = .horizontal;
     toplevel_layout.item_pad = 0;
 
-    const sidebar = try sidebar_mod.makeSidebar(&app, widget_factory);
-    try toplevel_layout.pushOrDeinitWidget(widget_factory.alloc, sidebar.widget);
+    const sidebar = try sidebar_mod.makeSidebar(gui_alloc, &app, widget_state);
+    try toplevel_layout.pushWidget(sidebar.widget);
 
-    const app_widget = try AppWidget.init(alloc, &app, .{ .width = window_width, .height = window_height });
-    try toplevel_layout.pushOrDeinitWidget(widget_factory.alloc, app_widget);
+    var memory_tracker = blk: {
+        const now = try std.time.Instant.now();
+        break :blk try MemoryTracker.init(root_arena, now, 1000, &root_alloc);
+    };
+
+    var memory_widget = try MemoryWidget.init(gui_alloc, &scratch_alloc, &memory_tracker, &widget_factory.state.property_list_style, &widget_factory.state.guitext_state, &widget_factory.state.scroll_style, &widget_factory.state.squircle_renderer);
+
+    const app_widget = try AppWidget.init(root_arena, &app, .{ .width = window_width, .height = window_height });
+    try toplevel_layout.pushWidget(app_widget);
 
     var gui_runner = try widget_factory.makeRunnerOrDeinit(toplevel_layout.asWidget());
-    defer gui_runner.deinit();
+
+    gui_alloc.heap.storage.arena.lock();
 
     while (!glfw.closed()) {
+        scratch_alloc.reset();
+        scratch_gl.reset();
+        const now = try std.time.Instant.now();
         const width, const height = glfw.getWindowSize();
 
         sphrender.gl.glViewport(0, 0, @intCast(width), @intCast(height));
@@ -444,13 +474,20 @@ pub fn main() !void {
                 .edit_selected_object_name => |params| {
                     const name = app.objects.get(app.input_state.selected_object).name;
                     var edit_name = std.ArrayListUnmanaged(u8){};
-                    defer edit_name.deinit(alloc);
 
                     // FIXME: Should we crash on failure?
-                    try edit_name.appendSlice(alloc, name);
-                    try gui.textbox.executeTextEditOnArrayList(alloc, &edit_name, params.pos, params.notifier, params.items);
+                    try edit_name.appendSlice(scratch_alloc.allocator(), name.items);
+                    try gui.textbox.executeTextEditOnArrayList(scratch_alloc.allocator(), &edit_name, params.pos, params.notifier, params.items);
 
-                    try app.updateSelectedObjectName(edit_name.items);
+                    app.updateSelectedObjectName(edit_name.items);
+
+                    const new_name_len = app.selectedObject().name.items.len;
+                    const applied_len_diff = @as(i64, @intCast(edit_name.items.len)) - @as(i64, @intCast(new_name_len));
+                    if (applied_len_diff > 0) {
+                        for (0..@intCast(applied_len_diff)) |_| {
+                            try params.notifier.notify(.{ .delete_char = new_name_len });
+                        }
+                    }
                 },
                 .update_composition_width => |new_width| {
                     app.updateSelectedWidth(new_width) catch |e| {
@@ -497,12 +534,12 @@ pub fn main() !void {
                 },
                 .update_text_obj_name => |params| text_update: {
                     const text = app.selectedObject().asText() orelse break :text_update;
+
                     var edit = std.ArrayListUnmanaged(u8){};
-                    defer edit.deinit(alloc);
 
                     // FIXME: Should we crash on failure?
-                    try edit.appendSlice(alloc, text.current_text);
-                    try gui.textbox.executeTextEditOnArrayList(alloc, &edit, params.pos, params.notifier, params.items);
+                    try edit.appendSlice(scratch_alloc.allocator(), text.current_text);
+                    try gui.textbox.executeTextEditOnArrayList(scratch_alloc.allocator(), &edit, params.pos, params.notifier, params.items);
 
                     app.updateTextObjectContent(edit.items) catch |e| {
                         logError("Failed to set text content", e, @errorReturnTrace());
@@ -536,6 +573,17 @@ pub fn main() !void {
                         logError("Failed to set composition debug state", e, @errorReturnTrace());
                     };
                 },
+            }
+        }
+
+        try app.step();
+        try memory_tracker.step(now);
+
+        for (gui_runner.input_state.frame_keys.items) |key| {
+            if (key.ctrl and key.key == .ascii and key.key.ascii == 'd') {
+                widget_factory.state.overlay.set(memory_widget.asWidget(), 0, 0);
+            } else if (key.key == .escape) {
+                try widget_factory.state.overlay.reset();
             }
         }
 

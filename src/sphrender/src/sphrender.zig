@@ -3,10 +3,13 @@ pub const geometry = @import("geometry.zig");
 pub const DistanceFieldGenerator = @import("DistanceFieldGenerator.zig");
 pub const shader_program = @import("shader_program.zig");
 pub const xyuvt_program = @import("xyuvt.zig");
+pub const GlAlloc = @import("GlAlloc.zig");
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const sphmath = @import("sphmath");
+const sphalloc = @import("sphalloc");
+const Sphalloc = sphalloc.Sphalloc;
 
 pub const UniformType = enum {
     image,
@@ -107,20 +110,20 @@ pub fn checkProgramLink(program: gl.GLuint) !void {
     return error.ProgramLinkFailed;
 }
 
-pub fn compileLinkProgram(vs: [:0]const u8, fs: [:0]const u8) !gl.GLuint {
+pub fn compileLinkProgram(gl_alloc: *GlAlloc, vs: [:0]const u8, fs: [:0]const u8) !gl.GLuint {
     const vertex_shader = gl.glCreateShader(gl.GL_VERTEX_SHADER);
+    defer gl.glDeleteShader(vertex_shader);
     gl.glShaderSource(vertex_shader, 1, @ptrCast(&vs), null);
     gl.glCompileShader(vertex_shader);
     try checkShaderCompilation(vertex_shader);
-    defer gl.glDeleteShader(vertex_shader);
 
     const fragment_shader = gl.glCreateShader(gl.GL_FRAGMENT_SHADER);
+    defer gl.glDeleteShader(fragment_shader);
     gl.glShaderSource(fragment_shader, 1, @ptrCast(&fs), null);
     gl.glCompileShader(fragment_shader);
     try checkShaderCompilation(fragment_shader);
-    defer gl.glDeleteShader(fragment_shader);
 
-    const program = gl.glCreateProgram();
+    const program = try gl_alloc.createProgram();
     gl.glAttachShader(program, vertex_shader);
     gl.glAttachShader(program, fragment_shader);
     gl.glLinkProgram(program);
@@ -351,10 +354,6 @@ pub const Texture = struct {
 
     inner: gl.GLuint,
 
-    pub fn deinit(self: Texture) void {
-        gl.glDeleteTextures(1, &self.inner);
-    }
-
     pub fn sample(self: Texture, comptime T: type, x: u32, y: u32) !T {
         gl.glBindTexture(gl.GL_TEXTURE_2D, self.inner);
 
@@ -396,16 +395,20 @@ pub const Texture = struct {
     }
 };
 
-pub fn makeTextureFromR(data: []const u8, width: usize) Texture {
-    const texture = makeTextureCommon();
-    const height = data.len / width;
-    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RED, @intCast(width), @intCast(height), 0, gl.GL_RED, gl.GL_UNSIGNED_BYTE, data.ptr);
-
+pub fn makeTextureFromR(gl_alloc: *GlAlloc, data: []const u8, width: usize) !Texture {
+    const texture = try makeTextureCommon(gl_alloc);
+    setTextureFromR(texture, data, width);
     return texture;
 }
 
-pub fn makeTextureFromRgba(data: []const u8, width: usize) Texture {
-    const texture = makeTextureCommon();
+pub fn setTextureFromR(texture: Texture, data: []const u8, width: usize) void {
+    const height = data.len / width;
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture.inner);
+    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RED, @intCast(width), @intCast(height), 0, gl.GL_RED, gl.GL_UNSIGNED_BYTE, data.ptr);
+}
+
+pub fn makeTextureFromRgba(gl_alloc: *GlAlloc, data: []const u8, width: usize) !Texture {
+    const texture = try makeTextureCommon(gl_alloc);
 
     const height = data.len / width / 4;
     gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, @intCast(width), @intCast(height), 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, data.ptr);
@@ -427,8 +430,14 @@ const TextureFormat = enum {
     }
 };
 
-pub fn makeTextureOfSize(width: u31, height: u31, storage_format: TextureFormat) Texture {
-    const texture = makeTextureCommon();
+pub fn makeTextureOfSize(gl_alloc: *GlAlloc, width: u31, height: u31, storage_format: TextureFormat) !Texture {
+    const texture = try makeTextureCommon(gl_alloc);
+    setTextureSize(texture, width, height, storage_format);
+    return texture;
+}
+
+pub fn setTextureSize(texture: Texture, width: u31, height: u31, storage_format: TextureFormat) void {
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture.inner);
     const format = switch (storage_format) {
         .ri32 => gl.GL_RED_INTEGER,
         else => gl.GL_RGBA,
@@ -444,14 +453,10 @@ pub fn makeTextureOfSize(width: u31, height: u31, storage_format: TextureFormat)
         gl.GL_INT,
         null,
     );
-
-    return texture;
 }
 
-pub fn makeTextureCommon() Texture {
-    var texture: gl.GLuint = 0;
-
-    gl.glGenTextures(1, &texture);
+pub fn makeTextureCommon(gl_alloc: *GlAlloc) !Texture {
+    const texture = try gl_alloc.genTexture();
     gl.glBindTexture(gl.GL_TEXTURE_2D, texture);
 
     gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE); // Wrap horizontally
@@ -599,5 +604,36 @@ pub const TemporaryScissor = struct {
         if (!self.previous_enable) {
             gl.glDisable(gl.GL_SCISSOR_TEST);
         }
+    }
+};
+
+pub const RenderAlloc = struct {
+    heap: *Sphalloc,
+    gl: *GlAlloc,
+
+    pub fn init(root_alloc: *Sphalloc, root_gl: *GlAlloc) RenderAlloc {
+        return .{
+            .heap = root_alloc,
+            .gl = root_gl,
+        };
+    }
+
+    pub fn deinit(self: RenderAlloc) void {
+        self.gl.reset();
+        self.heap.deinit();
+    }
+
+    pub fn reset(self: RenderAlloc) !void {
+        self.gl.reset();
+        try self.heap.reset();
+    }
+
+    pub fn makeSubAlloc(self: RenderAlloc, comptime name: []const u8) !RenderAlloc {
+        const child = try self.heap.makeSubAlloc(name);
+        const child_gl = try self.gl.makeSubAlloc(child);
+        return .{
+            .heap = child,
+            .gl = child_gl,
+        };
     }
 };

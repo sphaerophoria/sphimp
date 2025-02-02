@@ -11,7 +11,7 @@ pub const SelectedObjectName = struct {
     }
 
     pub fn getText(self: *SelectedObjectName) []const u8 {
-        return self.app.selectedObject().name;
+        return self.app.selectedObject().name.items;
     }
 };
 
@@ -89,6 +89,6 @@ pub const CompositionObjName = struct {
         const comp_data = self.app.selectedObject().asComposition() orelse return "";
         const comp_obj = comp_data.objects.items[self.idx];
         const obj = self.app.objects.get(comp_obj.id);
-        return obj.name;
+        return obj.name.items;
     }
 };
