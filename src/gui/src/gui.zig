@@ -1,6 +1,8 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const sphmath = @import("sphmath");
+const sphrender = @import("sphrender");
+const sphutil = @import("sphutil");
 
 pub const label = @import("label.zig");
 pub const drag_float = @import("drag_float.zig");
@@ -37,6 +39,7 @@ pub const Key = union(enum) {
     right_arrow,
     backspace,
     delete,
+    escape,
 };
 pub const KeyEvent = struct { key: Key, ctrl: bool };
 
@@ -65,10 +68,12 @@ pub const InputState = struct {
     mouse_pressed: bool = false,
     mouse_released: bool = false,
     frame_scroll: f32 = 0,
-    frame_keys: std.ArrayListUnmanaged(KeyEvent) = .{},
+    frame_keys: std.ArrayList(KeyEvent),
 
-    pub fn deinit(self: *InputState, alloc: Allocator) void {
-        self.frame_keys.deinit(alloc);
+    pub fn init(gpa: Allocator) InputState {
+        return .{
+            .frame_keys = std.ArrayList(KeyEvent).init(gpa),
+        };
     }
 
     pub fn startFrame(self: *InputState) void {
@@ -84,7 +89,7 @@ pub const InputState = struct {
         self.frame_scroll = 0;
     }
 
-    pub fn pushInput(self: *InputState, alloc: Allocator, action: WindowAction) !void {
+    pub fn pushInput(self: *InputState, action: WindowAction) !void {
         switch (action) {
             .mouse_move => |pos| {
                 self.mouse_pos = pos;
@@ -100,7 +105,7 @@ pub const InputState = struct {
                 self.frame_scroll += amount;
             },
             .key_down => |ev| {
-                try self.frame_keys.append(alloc, ev);
+                try self.frame_keys.append(ev);
             },
             .middle_down => self.mouse_middle_pressed = true,
             .middle_up => self.mouse_middle_released = true,
@@ -179,7 +184,6 @@ pub fn InputResponse(comptime Action: type) type {
 pub fn Widget(comptime Action: type) type {
     return struct {
         pub const VTable = struct {
-            deinit: *const fn (ctx: ?*anyopaque, alloc: Allocator) void,
             render: *const fn (ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void,
             getSize: *const fn (ctx: ?*anyopaque) PixelSize,
             update: ?*const fn (ctx: ?*anyopaque, available_size: PixelSize) anyerror!void,
@@ -192,10 +196,6 @@ pub fn Widget(comptime Action: type) type {
 
         vtable: *const VTable,
         ctx: ?*anyopaque,
-
-        pub fn deinit(self: Self, alloc: Allocator) void {
-            self.vtable.deinit(self.ctx, alloc);
-        }
 
         pub fn getSize(self: Self) PixelSize {
             return self.vtable.getSize(self.ctx);
@@ -241,3 +241,5 @@ pub const Color = struct {
     b: f32,
     a: f32,
 };
+
+pub const GuiAlloc = sphrender.RenderAlloc;

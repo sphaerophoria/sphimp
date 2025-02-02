@@ -3,6 +3,9 @@
     .version = "0.0.1",
     .minimum_zig_version = "0.13.0",
     .dependencies = .{
+        .sphalloc = .{
+            .path = "src/sphalloc",
+        },
         .sphmath = .{
             .path = "src/sphmath",
         },
@@ -14,6 +17,9 @@
         },
         .sphui = .{
             .path = "src/gui",
+        },
+        .sphutil = .{
+            .path = "src/sphutil",
         },
     },
     .paths = .{
