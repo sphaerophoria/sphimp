@@ -19,7 +19,7 @@ const GlAlloc = @This();
 
 pub fn init(alloc: *Sphalloc) !GlAlloc {
     const typical_size = 5;
-    const max_size = 1000;
+    const max_size = 10000;
     return .{
         .alloc = alloc,
         .vbos = try RuntimeSegmentedList(gl.GLuint).init(

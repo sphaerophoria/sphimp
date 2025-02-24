@@ -244,6 +244,10 @@ pub fn RuntimeSegmentedList(comptime T: type) type {
         }
 
         fn ensureBlockAllocated(self: *Self, block: usize) !void {
+            if (block >= self.expansions.len) {
+                return error.OutOfMemory;
+            }
+
             if (!self.expansion_allocated.isSet(block)) {
                 self.expansions[block] = (try self.alloc.alloc(T, expansionBlockSize(block, first_expansion_size))).ptr;
                 self.expansion_allocated.set(block);
