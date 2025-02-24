@@ -277,8 +277,7 @@ pub fn makeTextbox(comptime Action: type, alloc: gui.GuiAlloc, text_retreiver: a
 // Helper function to automatically notify when applying edits on a text
 // element backed by an array list
 pub fn executeTextEditOnArrayList(
-    alloc: Allocator,
-    text_input: *std.ArrayListUnmanaged(u8),
+    text_input: *std.ArrayList(u8),
     insert_idx: usize,
     notifier: gui.textbox.TextboxNotifier,
     events: []const gui.KeyEvent,
@@ -292,7 +291,7 @@ pub fn executeTextEditOnArrayList(
 
         switch (ev.key) {
             .ascii => |char| {
-                try text_input.insert(alloc, fixed_insert_idx, char);
+                try text_input.insert(fixed_insert_idx, char);
                 num_inserted += 1;
                 try notifier.notify(.{ .insert_char = fixed_insert_idx });
             },

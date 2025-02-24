@@ -312,11 +312,11 @@ pub fn main() !void {
                 },
                 .edit_selected_object_name => |params| {
                     const name = app.objects.get(app.input_state.selected_object).name;
-                    var edit_name = std.ArrayListUnmanaged(u8){};
+                    var edit_name = std.ArrayList(u8).init(allocators.scratch.allocator());
 
                     // FIXME: Should we crash on failure?
-                    try edit_name.appendSlice(allocators.scratch.allocator(), name);
-                    try gui.textbox.executeTextEditOnArrayList(allocators.scratch.allocator(), &edit_name, params.pos, params.notifier, params.items);
+                    try edit_name.appendSlice(name);
+                    try gui.textbox.executeTextEditOnArrayList(&edit_name, params.pos, params.notifier, params.items);
 
                     try app.updateSelectedObjectName(edit_name.items);
                 },
@@ -366,11 +366,11 @@ pub fn main() !void {
                 .update_text_obj_name => |params| text_update: {
                     const text = app.selectedObject().asText() orelse break :text_update;
 
-                    var edit = std.ArrayListUnmanaged(u8){};
+                    var edit = std.ArrayList(u8).init(allocators.scratch.allocator());
 
                     // FIXME: Should we crash on failure?
-                    try edit.appendSlice(allocators.scratch.allocator(), text.current_text);
-                    try gui.textbox.executeTextEditOnArrayList(allocators.scratch.allocator(), &edit, params.pos, params.notifier, params.items);
+                    try edit.appendSlice(text.current_text);
+                    try gui.textbox.executeTextEditOnArrayList(&edit, params.pos, params.notifier, params.items);
 
                     app.updateTextObjectContent(edit.items) catch |e| {
                         logError("Failed to set text content", e, @errorReturnTrace());
