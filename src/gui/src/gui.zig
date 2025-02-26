@@ -29,6 +29,7 @@ pub const box = @import("box.zig");
 pub const checkbox = @import("checkbox.zig");
 pub const util = @import("util.zig");
 pub const memory_widget = @import("memory_widget.zig");
+pub const table = @import("table.zig");
 pub const thumbnail = @import("thumbnail.zig");
 pub const grid = @import("grid.zig");
 pub const interactable = @import("interactable.zig");

@@ -28,6 +28,7 @@ pub fn widgetState(comptime Action: type, gui_alloc: gui.GuiAlloc, scratch_alloc
     const widget_width: u31 = @intFromFloat(unit * 8);
     const typical_widget_height: u31 = @intFromFloat(unit * 1.3);
     const corner_radius: f32 = unit / 5;
+    ret.corner_radius = corner_radius;
 
     ret.drag_shared = gui.drag_float.Shared{
         .style = .{
@@ -191,6 +192,19 @@ pub fn widgetState(comptime Action: type, gui_alloc: gui.GuiAlloc, scratch_alloc
         &ret.squircle_renderer,
     );
 
+    ret.table_shared = .{
+        .style = .{
+            .item_pad = layout_pad * 2,
+            .seperator_width = layout_pad / 2,
+            .header_height = typical_widget_height,
+            .header_background = StyleColors.background_color2,
+            .seperator_color = StyleColors.active_color,
+        },
+        .gui_text_shared = &ret.guitext_state,
+        .scrollbar_style = &ret.scroll_style,
+        .squircle_renderer = &ret.squircle_renderer,
+    };
+
     ret.thumbnail_shared = .{
         .image_renderer = &ret.image_renderer,
     };
@@ -239,6 +253,7 @@ pub const StyleColors = struct {
 pub fn WidgetState(comptime Action: type) type {
     return struct {
         layout_pad: u31,
+        corner_radius: f32,
         text_renderer: sphtext.TextRenderer,
         distance_field_renderer: sphrender.DistanceFieldGenerator,
         ttf: sphtext.ttf.Ttf,
@@ -257,6 +272,7 @@ pub fn WidgetState(comptime Action: type) type {
         combo_box_shared: gui.combo_box.Shared,
         checkbox_shared: gui.checkbox.Shared,
         memory_widget_shared: gui.memory_widget.Shared,
+        table_shared: gui.table.TableShared,
         thumbnail_shared: gui.thumbnail.Shared,
         drag_layer: gui.drag_layer.DragLayer(Action),
         interactable_shared: gui.interactable.Shared(Action),
@@ -354,6 +370,10 @@ pub fn WidgetFactory(comptime Action: type) type {
 
         pub fn makeLayout(self: *const Self) !*gui.layout.Layout(Action) {
             return gui.layout.Layout(Action).init(self.alloc.heap.arena(), self.state.layout_pad);
+        }
+
+        pub fn makeTable(self: *const Self, comptime HeaderRetriever: type, headers: []const HeaderRetriever, expected_rows: usize, max_rows: usize) !*gui.table.Table(Action, HeaderRetriever) {
+            return gui.table.makeTable(Action, HeaderRetriever, self.alloc, headers, expected_rows, max_rows, &self.state.table_shared,);
         }
 
         pub fn makePropertyList(self: *const Self, max_size: usize) !*gui.property_list.PropertyList(Action) {

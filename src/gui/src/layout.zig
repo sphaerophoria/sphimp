@@ -15,8 +15,6 @@ pub fn Layout(comptime Action: type) type {
         items: std.SegmentedList(LayoutItem, 32),
         item_pad: u31,
         focused_id: ?usize,
-        // If layout is vertical, this is horizontal and vice versa
-        max_perpendicular_length: u31,
 
         const LayoutItem = struct {
             widget: Widget(Action),
@@ -42,7 +40,6 @@ pub fn Layout(comptime Action: type) type {
                 .items = .{},
                 .item_pad = item_pad,
                 .focused_id = null,
-                .max_perpendicular_length = 0,
             };
             return layout;
         }
@@ -51,14 +48,13 @@ pub fn Layout(comptime Action: type) type {
             self.items.clearRetainingCapacity();
             self.cursor.reset();
             self.focused_id = null;
-            self.max_perpendicular_length = 0;
         }
 
         pub fn pushWidget(self: *Self, widget: Widget(Action)) !void {
             const size = widget.getSize();
-            const bounds = self.cursor.push(size, self.item_pad);
+            // FIXME: Maybe should just use null bounds instead of hacking the cursor
+            const bounds = self.cursor.push(size, .{ .width = 0, .height = 0 }, self.item_pad);
             try self.items.append(self.alloc, .{ .bounds = bounds, .widget = widget });
-            self.updatePerpendicularLength(size);
         }
 
         pub fn asWidget(self: *Self) Widget(Action) {
@@ -72,21 +68,19 @@ pub fn Layout(comptime Action: type) type {
         pub fn update(ctx: ?*anyopaque, container_size: PixelSize, delta_s: f32) !void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.cursor.reset();
-            self.max_perpendicular_length = 0;
 
             var item_it = self.items.iterator(0);
             while (item_it.next()) |item| {
                 try item.widget.update(self.availableSize(container_size), delta_s);
                 const widget_size = item.widget.getSize();
-                item.bounds = self.cursor.push(widget_size, self.item_pad);
-                self.updatePerpendicularLength(widget_size);
+                item.bounds = self.cursor.push(widget_size, container_size, self.item_pad);
             }
 
             switch (self.cursor.direction) {
                 .right_to_left => {
                     self.invertWidgetsHorizontally(container_size);
                 },
-                .left_to_right, .top_to_bottom => {},
+                .left_to_right, .top_to_bottom, .left_to_right_wrapping => {},
             }
         }
 
@@ -154,15 +148,15 @@ pub fn Layout(comptime Action: type) type {
         fn getSize(ctx: ?*anyopaque) PixelSize {
             const self: *Self = @ptrCast(@alignCast(ctx));
             switch (self.cursor.direction) {
-                .left_to_right, .right_to_left => {
+                .left_to_right, .right_to_left, .left_to_right_wrapping => {
                     return .{
                         .width = self.cursor.offs -| self.item_pad,
-                        .height = self.max_perpendicular_length,
+                        .height = self.cursor.max_perpendicular_size,
                     };
                 },
                 .top_to_bottom => {
                     return .{
-                        .width = self.max_perpendicular_length,
+                        .width = self.cursor.max_perpendicular_size,
                         .height = self.cursor.offs -| self.item_pad,
                     };
                 },
@@ -184,15 +178,6 @@ pub fn Layout(comptime Action: type) type {
                 self.items.at(id).widget.setFocused(focused);
             }
         }
-
-        fn updatePerpendicularLength(self: *Self, size: PixelSize) void {
-            const new_length = switch (self.cursor.direction) {
-                .left_to_right, .right_to_left => size.height,
-                .top_to_bottom => size.width,
-            };
-
-            self.max_perpendicular_length = @max(self.max_perpendicular_length, new_length);
-        }
     };
 }
 
@@ -207,42 +192,74 @@ fn childBounds(bounds_rel_layout: PixelBBox, layout_bounds: PixelBBox) PixelBBox
 
 const Cursor = struct {
     offs: u31 = 0,
+    perpendicular_offset: u31 = 0,
+    max_perpendicular_size: u31 = 0,
 
     direction: enum {
         left_to_right,
         right_to_left,
+        left_to_right_wrapping,
         top_to_bottom,
     } = .top_to_bottom,
 
     fn reset(self: *Cursor) void {
         self.offs = 0;
+        self.perpendicular_offset = 0;
+        self.max_perpendicular_size = 0;
     }
 
     fn x_offs(self: Cursor) u31 {
         return switch (self.direction) {
-            .left_to_right, .right_to_left => self.offs,
-            .top_to_bottom => 0,
+            .left_to_right, .right_to_left, .left_to_right_wrapping => self.offs,
+            .top_to_bottom => self.perpendicular_offset,
         };
     }
 
     fn y_offs(self: Cursor) u31 {
         return switch (self.direction) {
-            .left_to_right, .right_to_left => 0,
+            .left_to_right, .right_to_left, .left_to_right_wrapping => self.perpendicular_offset,
             .top_to_bottom => self.offs,
         };
     }
 
-    fn push(self: *Cursor, size: PixelSize, padding: u31) PixelBBox {
-        const bounds = PixelBBox{
+    fn push(self: *Cursor, widget_size: PixelSize, container_size: PixelSize, padding: u31) PixelBBox {
+        var bounds = PixelBBox{
             .left = self.x_offs(),
-            .right = self.x_offs() + size.width,
+            .right = self.x_offs() + widget_size.width,
             .top = self.y_offs(),
-            .bottom = self.y_offs() + size.height,
+            .bottom = self.y_offs() + widget_size.height,
         };
 
         switch (self.direction) {
-            .top_to_bottom => self.offs += size.height + padding,
-            .left_to_right, .right_to_left => self.offs += size.width + padding,
+            .top_to_bottom => {
+                self.offs += widget_size.height + padding;
+            },
+            .left_to_right, .right_to_left => self.offs += widget_size.width + padding,
+            .left_to_right_wrapping => {
+                if (bounds.right > container_size.width and bounds.left > 0) {
+                    self.perpendicular_offset += self.max_perpendicular_size + padding;
+                    self.max_perpendicular_size = 0;
+                    self.offs = 0;
+
+                    bounds = PixelBBox{
+                        .left = 0,
+                        .right = widget_size.width,
+                        .top = self.perpendicular_offset,
+                        .bottom = self.perpendicular_offset + widget_size.height,
+                    };
+                }
+
+                self.offs += widget_size.width + padding;
+            },
+        }
+
+        switch (self.direction) {
+            .left_to_right, .right_to_left, .left_to_right_wrapping => {
+                self.max_perpendicular_size = @max(widget_size.height, self.max_perpendicular_size);
+            },
+            .top_to_bottom => {
+                self.max_perpendicular_size = @max(widget_size.width, self.max_perpendicular_size);
+            }
         }
 
         return bounds;

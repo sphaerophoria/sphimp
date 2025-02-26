@@ -7,15 +7,15 @@ const InputState = gui.InputState;
 const Widget = gui.Widget;
 const InputResponse = gui.InputResponse;
 
-pub const FillStyle = enum {
+pub const FillStyle = union(enum) {
     fill_none,
     fill_width,
     fill_height,
     // Fill both would be useless
 };
 
-pub fn box(comptime Action: type, alloc: Allocator, inner: Widget(Action), size: PixelSize, fill_style: FillStyle) !Widget(Action) {
-    const ctx = try alloc.create(Box(Action));
+pub fn box(comptime Action: type, arena: Allocator, inner: Widget(Action), size: PixelSize, fill_style: FillStyle) !Widget(Action) {
+    const ctx = try arena.create(Box(Action));
     ctx.* = .{
         .inner = inner,
         .size = size,

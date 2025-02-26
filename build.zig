@@ -114,6 +114,11 @@ pub fn build(b: *std.Build) !void {
     builder.addGuiDependencies(exe);
     try builder.installAndCheck(exe);
 
+    const fp = builder.addExecutable("file_picker_demo", "src/file_picker_demo.zig");
+    builder.addAppDependencies(fp);
+    builder.addGuiDependencies(fp);
+    try builder.installAndCheck(fp);
+
     const lint_exe = builder.addExecutable(
         "lint",
         "src/lint.zig",
