@@ -13,6 +13,7 @@ const sphrender = @import("sphrender");
 const App = sphimp.App;
 const ObjectId = sphimp.object.ObjectId;
 const Objects = sphimp.object.Objects;
+const Object = sphimp.object.Object;
 
 const level_dist: f32 = 0.1;
 const widget_height = 300;
@@ -153,9 +154,7 @@ const Layout = struct {
 
     fn update(self: *Layout, arena: Allocator, width: u31, objects: *Objects, id: ObjectId) !void {
         self.x_center = @floatFromInt(width / 2);
-        const preprocessed_data = preprocess(objects, id, 0);
-
-        std.debug.print("width: {d}\n", .{preprocessed_data.width});
+        const preprocessed_data = preprocess(objects, id, 0, 1);
 
         const num_thumbnail_layers: f32 = @floatFromInt(preprocessed_data.depth + 1);
         const depth_f: f32 = @floatFromInt(preprocessed_data.depth);
@@ -169,7 +168,11 @@ const Layout = struct {
 
         self.data = try sphutil.RuntimeBoundedArray(Elem).init(arena, preprocessed_data.num_desendents + 1);
 
-        try self.layoutElems(objects, id, 0);
+        const padding = self.thumbnail_height * level_dist;
+        const width_elems_f32: f32 = @floatFromInt(preprocessed_data.width);
+        const col_width_px = self.thumbnail_height * width_elems_f32 + padding * (width_elems_f32 - 1);
+        // FIXME: So many widths
+        try self.layoutElems(objects, id, 0, col_width_px, @as(f32, @floatFromInt(width)) / 2.0);
     }
 
     const PreprocessData = struct {
@@ -179,28 +182,43 @@ const Layout = struct {
         width: usize,
     };
 
-    fn preprocess(objects: *Objects, id: ObjectId, current_depth: usize) PreprocessData {
+    fn preprocess(objects: *Objects, id: ObjectId, current_depth: usize, current_width: usize) PreprocessData {
         const obj = objects.get(id);
         var dependencies = obj.dependencies();
 
         var depth = current_depth;
         var num_desendents: usize = 0;
-        var width: usize = 0;
+
+        const num_direct_dependencies = countDirectDependencies(obj.*);
+        const next_width = @max(num_direct_dependencies, 1) * current_width;
+
+        var output_width = next_width;
+
         while (dependencies.next()) |dep| {
-            const child_preprocess = preprocess(objects, dep, current_depth + 1);
+            const child_preprocess = preprocess(objects, dep, current_depth + 1, next_width);
             depth = @max(depth, child_preprocess.depth);
             num_desendents += 1 + child_preprocess.num_desendents;
-            width += child_preprocess.width;
+            output_width = @max(output_width, child_preprocess.width);
         }
 
         return .{
             .depth = depth,
             .num_desendents = num_desendents,
-            .width = width,
+            .width = output_width,
         };
     }
 
-    fn layoutElems(self: *Layout, objects: *Objects, id: ObjectId, current_depth: usize) !void {
+    fn countDirectDependencies(obj: Object) usize {
+        // FIXME: Surely there's a better way?
+        var it = obj.dependencies();
+        var ret: usize = 0;
+        while (it.next()) |_| {
+            ret += 1;
+        }
+        return ret;
+    }
+
+    fn layoutElems(self: *Layout, objects: *Objects, id: ObjectId, current_depth: usize, current_width_px: f32, center_x_px: f32) !void {
         const obj = objects.get(id);
         var dependencies = obj.dependencies();
 
@@ -209,12 +227,18 @@ const Layout = struct {
 
         try self.data.append(.{
             .id = id,
-            .location = .{ self.x_center, y_center },
+            .location = .{ center_x_px, y_center },
         });
 
+        const num_dependencies = countDirectDependencies(obj.*);
+        const next_width = current_width_px / @as(f32, @floatFromInt(num_dependencies));
+
+        const next_x_start = center_x_px - current_width_px / 2 + next_width / 2;
+        var idx: usize = 0;
         while (dependencies.next()) |dep| {
-            try self.layoutElems(objects, dep, current_depth + 1);
-            break;
+            // FIXME: cast hell
+            try self.layoutElems(objects, dep, current_depth + 1, next_width, @as(f32, @floatFromInt(idx)) * next_width + next_x_start);
+            idx += 1;
         }
     }
 
