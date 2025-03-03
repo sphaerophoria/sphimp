@@ -18,6 +18,7 @@ pub const TextEditRequest = struct {
 
 pub const UiAction = union(enum) {
     update_selected_object: ObjectId,
+    update_property_object: ObjectId,
     create_path,
     create_composition,
     create_drawing,
@@ -25,8 +26,14 @@ pub const UiAction = union(enum) {
     create_shader: ShaderId,
     delete_selected_object,
     edit_selected_object_name: TextEditRequest,
-    update_composition_width: f32,
-    update_composition_height: f32,
+    update_composition_width: struct {
+        id: ObjectId,
+        val: f32,
+    },
+    update_composition_height: struct {
+        id: ObjectId,
+        val: f32,
+    },
     update_shader_float: struct {
         uniform_idx: usize,
         float_idx: usize,
@@ -77,16 +84,34 @@ pub const UiAction = union(enum) {
         };
     }
 
-    pub fn makeUpdateCompositionWidth(val: f32) UiAction {
-        return .{ .update_composition_width = val };
-    }
-
-    pub fn makeUpdateCompositionHeight(val: f32) UiAction {
-        return .{ .update_composition_height = val };
-    }
-
     pub fn makeChangeEraserSize(val: f32) UiAction {
         return .{ .change_eraser_size = val };
+    }
+};
+
+pub const CompositionWidth = struct {
+    id: sphimp.object.ObjectId,
+
+    pub fn generate(self: CompositionWidth, val: f32) UiAction {
+        return .{
+            .update_composition_width = .{
+                .id = self.id,
+                .val = val,
+            },
+        };
+    }
+};
+
+pub const CompositionHeight = struct {
+    id: sphimp.object.ObjectId,
+
+    pub fn generate(self: CompositionHeight, val: f32) UiAction {
+        return .{
+            .update_composition_height = .{
+                .id = self.id,
+                .val = val,
+            },
+        };
     }
 };
 

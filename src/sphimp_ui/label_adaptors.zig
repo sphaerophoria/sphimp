@@ -5,39 +5,42 @@ const sphimp = @import("sphimp");
 
 pub const SelectedObjectName = struct {
     app: *sphimp.App,
+    id: *sphimp.object.ObjectId,
 
-    pub fn init(app: *sphimp.App) SelectedObjectName {
-        return .{ .app = app };
+    pub fn init(app: *sphimp.App, id: *sphimp.object.ObjectId) SelectedObjectName {
+        return .{ .app = app, .id = id, };
     }
 
     pub fn getText(self: *SelectedObjectName) []const u8 {
-        return self.app.selectedObject().name;
+        return self.app.objects.get(self.id.*).name;
     }
 };
 
 pub const SelectedObjectWidth = struct {
     app: *sphimp.App,
+    id: *sphimp.object.ObjectId,
     buf: [10]u8 = undefined,
 
-    pub fn init(app: *sphimp.App) SelectedObjectWidth {
-        return .{ .app = app };
+    pub fn init(app: *sphimp.App, id: *sphimp.object.ObjectId) SelectedObjectWidth {
+        return .{ .app = app, .id = id};
     }
 
     pub fn getText(self: *SelectedObjectWidth) []const u8 {
-        return std.fmt.bufPrint(&self.buf, "{d}", .{self.app.selectedDims()[0]}) catch "error";
+        return std.fmt.bufPrint(&self.buf, "{d}", .{self.app.objectDims(self.id.*)[0]}) catch "error";
     }
 };
 
 pub const SelectedObjectHeight = struct {
     app: *sphimp.App,
+    id: *sphimp.object.ObjectId,
     buf: [10]u8 = undefined,
 
-    pub fn init(app: *sphimp.App) SelectedObjectHeight {
-        return .{ .app = app };
+    pub fn init(app: *sphimp.App, id: *sphimp.object.ObjectId) SelectedObjectHeight {
+        return .{ .app = app, .id = id,};
     }
 
     pub fn getText(self: *SelectedObjectHeight) []const u8 {
-        return std.fmt.bufPrint(&self.buf, "{d}", .{self.app.selectedObject().dims(&self.app.objects)[1]}) catch "error";
+        return std.fmt.bufPrint(&self.buf, "{d}", .{self.app.objectDims(self.id.*)[1]}) catch "error";
     }
 };
 

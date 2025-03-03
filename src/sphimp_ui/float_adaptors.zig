@@ -3,25 +3,27 @@ const sphimp = @import("sphimp");
 
 pub const SelectedObjectWidth = struct {
     app: *sphimp.App,
+    id: *sphimp.object.ObjectId,
 
-    pub fn init(app: *sphimp.App) SelectedObjectWidth {
-        return .{ .app = app };
+    pub fn init(app: *sphimp.App, id: *sphimp.object.ObjectId) SelectedObjectWidth {
+        return .{ .app = app, .id = id };
     }
 
     pub fn getVal(self: *SelectedObjectWidth) f32 {
-        return @floatFromInt(self.app.selectedDims()[0]);
+        return @floatFromInt(self.app.objectDims(self.id.*)[0]);
     }
 };
 
 pub const SelectedObjectHeight = struct {
     app: *sphimp.App,
+    id: *sphimp.object.ObjectId,
 
-    pub fn init(app: *sphimp.App) SelectedObjectHeight {
-        return .{ .app = app };
+    pub fn init(app: *sphimp.App, id: *sphimp.object.ObjectId) SelectedObjectHeight {
+        return .{ .app = app, .id = id };
     }
 
     pub fn getVal(self: *SelectedObjectHeight) f32 {
-        return @floatFromInt(self.app.selectedDims()[1]);
+        return @floatFromInt(self.app.objectDims(self.id.*)[1]);
     }
 };
 

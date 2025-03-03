@@ -490,8 +490,8 @@ pub fn deleteSelectedObject(self: *App) !void {
     }
 }
 
-pub fn updateSelectedWidth(self: *App, width: f32) !void {
-    const obj = self.selectedObject();
+pub fn updateObjectWidth(self: *App, id: ObjectId, width: f32) !void {
+    const obj = self.objects.get(id);
     switch (obj.data) {
         .composition => |*c| {
             c.dims[0] = @intFromFloat(width);
@@ -500,8 +500,8 @@ pub fn updateSelectedWidth(self: *App, width: f32) !void {
     }
 }
 
-pub fn updateSelectedHeight(self: *App, height: f32) !void {
-    const obj = self.selectedObject();
+pub fn updateObjectHeight(self: *App, id: ObjectId, height: f32) !void {
+    const obj = self.objects.get(id);
     switch (obj.data) {
         .composition => |*c| {
             c.dims[1] = @intFromFloat(height);
@@ -783,7 +783,11 @@ pub fn selectedObject(self: *App) *Object {
 }
 
 pub fn selectedDims(self: *App) PixelDims {
-    return self.objects.get(self.input_state.selected_object).dims(&self.objects);
+    return self.objectDims(self.selectedObjectId());
+}
+
+pub fn objectDims(self: *App, id: ObjectId) PixelDims {
+    return self.objects.get(id).dims(&self.objects);
 }
 
 const ViewState = struct {

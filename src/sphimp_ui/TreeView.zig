@@ -4,6 +4,8 @@ const gui = @import("sphui");
 const UiAction = @import("ui_action.zig").UiAction;
 const PixelBBox = gui.PixelBBox;
 const PixelSize = gui.PixelSize;
+const InputState = gui.InputState;
+const InputResponse = gui.InputResponse;
 const sphimp = @import("sphimp");
 const sphmath = @import("sphmath");
 const sphalloc = @import("sphalloc");
@@ -36,6 +38,7 @@ per_frame: struct {
     }
 },
 thumbnail_shared: *const gui.thumbnail.Shared,
+interactable_shared: *const gui.interactable.Shared(UiAction),
 
 const TextureData = struct {
     size: PixelSize,
@@ -50,7 +53,7 @@ const TextureData = struct {
     }
 };
 
-pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.SquircleRenderer, thumbnail_shared: *const gui.thumbnail.Shared) !gui.Widget(UiAction) {
+pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.SquircleRenderer, thumbnail_shared: *const gui.thumbnail.Shared, interactable_shared: *const gui.interactable.Shared(UiAction),) !gui.Widget(UiAction) {
     const ctx = try alloc.heap.arena().create(TreeView);
     ctx.* = .{
         .app = app,
@@ -59,6 +62,7 @@ pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.Squirc
         },
         .squircle_renderer = squircle_renderer,
         .thumbnail_shared = thumbnail_shared,
+        .interactable_shared = interactable_shared,
     };
 
     return .{
@@ -74,7 +78,7 @@ const widget_vtable = gui.Widget(UiAction).VTable{
     .render = TreeView.render,
     .getSize = TreeView.getSize,
     .update = TreeView.update,
-    .setInputState = null,
+    .setInputState = TreeView.setInputState,
     .setFocused = null,
     .reset = null,
 };
@@ -133,13 +137,39 @@ fn update(ctx: ?*anyopaque, available_size: PixelSize, _: f32) anyerror!void {
             };
         }
 
-        try self.per_frame.widgets.append(try gui.thumbnail.makeThumbnail(
+        const thumbnail = try gui.thumbnail.makeThumbnail(
             UiAction,
             self.per_frame.alloc.heap.arena(),
             gop.value_ptr.*,
             self.thumbnail_shared,
-        ));
+        );
+
+        const interactable = try gui.interactable.interactable(
+            UiAction,
+            self.per_frame.alloc.heap.arena(),
+            thumbnail,
+            .{ .update_property_object = id },
+            null,
+            self.interactable_shared,
+        );
+        try self.per_frame.widgets.append(interactable);
     }
+}
+
+fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: PixelBBox, input_state: InputState) InputResponse(UiAction) {
+    const self: *TreeView = @ptrCast(@alignCast(ctx));
+
+    var ret = InputResponse(UiAction){};
+    // FIXME: self.layout.len()
+    for (0..self.per_frame.layout.data.items.len) |i| {
+        const bounds = self.per_frame.layout.bounds(i).offset(widget_bounds.left, widget_bounds.top);
+        const widget = self.per_frame.widgets.items[i];
+        const widget_response = widget.setInputState(bounds, input_bounds.calcIntersection(bounds), input_state);
+        if (widget_response.action) |a| {
+            ret.action = a;
+        }
+    }
+    return ret;
 }
 
 const Layout = struct {

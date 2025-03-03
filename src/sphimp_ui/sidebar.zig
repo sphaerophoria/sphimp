@@ -67,7 +67,7 @@ const ObjectProperties = struct {
     specific_properties: *gui.layout.Layout(UiAction),
 };
 
-fn makeObjectProperties(app: *App, widget_factory: gui.widget_factory.WidgetFactory(UiAction)) !ObjectProperties {
+fn makeObjectProperties(app: *App, property_object_id: *sphimp.object.ObjectId, widget_factory: gui.widget_factory.WidgetFactory(UiAction)) !ObjectProperties {
     const layout = blk: {
         const layout = try widget_factory.makeLayout();
 
@@ -80,7 +80,7 @@ fn makeObjectProperties(app: *App, widget_factory: gui.widget_factory.WidgetFact
         {
             const name_label = try widget_factory.makeLabel("Name");
             const name_box = try widget_factory.makeTextbox(
-                label_adaptors.SelectedObjectName.init(app),
+                label_adaptors.SelectedObjectName.init(app, property_object_id),
                 &UiAction.makeEditName,
             );
             try property_list.pushWidget(name_label);
@@ -95,14 +95,14 @@ fn makeObjectProperties(app: *App, widget_factory: gui.widget_factory.WidgetFact
 
         {
             const label = try widget_factory.makeLabel("Width");
-            const value = try widget_factory.makeLabel(label_adaptors.SelectedObjectWidth.init(app));
+            const value = try widget_factory.makeLabel(label_adaptors.SelectedObjectWidth.init(app, property_object_id));
             try property_list.pushWidget(label);
             try property_list.pushWidget(value);
         }
 
         {
             const label = try widget_factory.makeLabel("Height");
-            const value = try widget_factory.makeLabel(label_adaptors.SelectedObjectHeight.init(app));
+            const value = try widget_factory.makeLabel(label_adaptors.SelectedObjectHeight.init(app, property_object_id));
             try property_list.pushWidget(label);
             try property_list.pushWidget(value);
         }
@@ -131,6 +131,7 @@ pub const Handle = struct {
 
     app: *App,
     removable_content_widget_factory: WidgetFactory,
+    property_object_id: *sphimp.object.ObjectId,
 
     pub fn notifyObjectChanged(self: Handle) void {
         // When objects change, we re-use the same widgets, but users expect
@@ -143,15 +144,17 @@ pub const Handle = struct {
     /// to re-generate the widget list. We need to tell the object list that
     /// the items in the property list may have changed, and we have to
     /// re-generate
-    pub fn updateObjectProperties(self: Handle) !void {
+    pub fn updateObjectProperties(self: Handle, id: ObjectId) !void {
         self.specific_object_properties.clear();
+
+        self.property_object_id.* = id;
 
         try self.removable_content_alloc.reset();
 
         const property_list = try self.removable_content_widget_factory.makePropertyList(50);
         try self.specific_object_properties.pushWidget(property_list.asWidget());
 
-        const selected_obj = self.app.objects.get(self.app.input_state.selected_object);
+        const selected_obj = self.app.objects.get(id);
 
         {
             const type_label_key = try self.removable_content_widget_factory.makeLabel("Object type");
@@ -174,8 +177,8 @@ pub const Handle = struct {
                 {
                     const width_label = try self.removable_content_widget_factory.makeLabel("Width");
                     const width_dragger = try self.removable_content_widget_factory.makeDragFloat(
-                        float_adaptors.SelectedObjectWidth.init(self.app),
-                        &UiAction.makeUpdateCompositionWidth,
+                        float_adaptors.SelectedObjectWidth.init(self.app, self.property_object_id),
+                        ui_action.CompositionWidth { .id = id },
                         1.0,
                     );
                     try property_list.pushWidget(width_label);
@@ -185,8 +188,8 @@ pub const Handle = struct {
                 {
                     const height_label = try self.removable_content_widget_factory.makeLabel("Height");
                     const height_dragger = try self.removable_content_widget_factory.makeDragFloat(
-                        float_adaptors.SelectedObjectHeight.init(self.app),
-                        &UiAction.makeUpdateCompositionHeight,
+                        float_adaptors.SelectedObjectHeight.init(self.app, self.property_object_id),
+                        ui_action.CompositionHeight { .id = id },
                         1.0,
                     );
                     try property_list.pushWidget(height_label);
@@ -477,6 +480,9 @@ pub const Sidebar = struct {
 pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, widget_state: *gui.widget_factory.WidgetState(UiAction)) !Sidebar {
     const removable_content_alloc = try sidebar_alloc.makeSubAlloc("sidebar_content");
 
+    const property_object_id = try sidebar_alloc.heap.arena().create(sphimp.object.ObjectId);
+    property_object_id.* = app.selectedObjectId();
+
     const full_factory = widget_state.factory(sidebar_alloc);
     const removable_factory = widget_state.factory(removable_content_alloc);
 
@@ -506,10 +512,11 @@ pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, w
         app,
         &widget_state.squircle_renderer,
         &widget_state.thumbnail_shared,
+        &widget_state.interactable_shared,
     );
     try layout.pushWidget(tree_view);
 
-    const properties = try makeObjectProperties(app, full_factory);
+    const properties = try makeObjectProperties(app, property_object_id, full_factory);
     try layout.pushWidget(properties.widget);
 
     const brush_icon = try loadTexture(sidebar_alloc.gl, @embedFile("res/brush.png"));
@@ -525,9 +532,10 @@ pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, w
 
         .app = app,
         .removable_content_widget_factory = removable_factory,
+        .property_object_id = property_object_id,
     };
 
-    try handle.updateObjectProperties();
+    try handle.updateObjectProperties(app.selectedObjectId());
 
     return .{
         .widget = sidebar_box,

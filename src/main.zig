@@ -268,6 +268,10 @@ pub fn main() !void {
                 .update_selected_object => |id| {
                     app.setSelectedObject(id);
                 },
+                .update_property_object => |id| {
+                    try ui.sidebar.updateObjectProperties(id);
+                    ui.sidebar.notifyObjectChanged();
+                },
                 .create_path => {
                     const new_obj = app.createPath() catch |e| {
                         logError("failed to create path", e, @errorReturnTrace());
@@ -305,6 +309,7 @@ pub fn main() !void {
                     app.setSelectedObject(new_obj);
                 },
                 .delete_selected_object => {
+                    // FIXME: Use property list object ID, not app selection
                     app.deleteSelectedObject() catch |e| {
                         logError("failed to delete object", e, @errorReturnTrace());
                         break :exec_action;
@@ -320,13 +325,13 @@ pub fn main() !void {
 
                     try app.updateSelectedObjectName(edit_name.items);
                 },
-                .update_composition_width => |new_width| {
-                    app.updateSelectedWidth(new_width) catch |e| {
+                .update_composition_width => |params| {
+                    app.updateObjectWidth(params.id, params.val) catch |e| {
                         logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
-                .update_composition_height => |new_height| {
-                    app.updateSelectedHeight(new_height) catch |e| {
+                .update_composition_height => |params| {
+                    app.updateObjectHeight(params.id, params.val) catch |e| {
                         logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
@@ -356,7 +361,8 @@ pub fn main() !void {
                     app.setDrawingObjectBrush(id) catch |e| {
                         logError("Failed to chnage brush", e, @errorReturnTrace());
                     };
-                    try ui.sidebar.updateObjectProperties();
+                    // FIXME: This might be wrong
+                    try ui.sidebar.updateObjectProperties(app.selectedObjectId());
                 },
                 .update_path_source => |id| {
                     app.updatePathDisplayObj(id) catch |e| {
@@ -391,13 +397,15 @@ pub fn main() !void {
                         logError("Failed to add object to composition", e, @errorReturnTrace());
                         break :blk;
                     };
-                    try ui.sidebar.updateObjectProperties();
+                    // FIXME: This might be wrong
+                    try ui.sidebar.updateObjectProperties(app.selectedObjectId());
                 },
                 .delete_from_composition => |idx| {
                     app.deleteFromComposition(.{ .value = idx }) catch |e| {
                         logError("Failed to delete object from composition", e, @errorReturnTrace());
                     };
-                    try ui.sidebar.updateObjectProperties();
+                    // FIXME: This might be wrong
+                    try ui.sidebar.updateObjectProperties(app.selectedObjectId());
                 },
                 .toggle_composition_debug => {
                     app.toggleCompositionDebug() catch |e| {
@@ -409,7 +417,8 @@ pub fn main() !void {
                 },
                 .set_drawing_tool => |t| {
                     app.tool_params.active_drawing_tool = t;
-                    try ui.sidebar.updateObjectProperties();
+                    // FIXME: This might be wrong
+                    try ui.sidebar.updateObjectProperties(app.selectedObjectId());
                 },
                 .change_eraser_size => |size| {
                     app.tool_params.eraser_width = @max(size, 0.0);
@@ -438,7 +447,7 @@ pub fn main() !void {
         }
 
         if (selected_object.value != app.input_state.selected_object.value) {
-            try ui.sidebar.updateObjectProperties();
+            try ui.sidebar.updateObjectProperties(app.selectedObjectId());
             ui.sidebar.notifyObjectChanged();
         }
 
