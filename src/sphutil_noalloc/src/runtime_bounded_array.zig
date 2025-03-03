@@ -3,8 +3,8 @@ const Allocator = std.mem.Allocator;
 
 pub fn RuntimeBoundedArray(comptime T: type) type {
     return struct {
-        items: []T,
-        capacity: usize,
+        items: []T = &.{},
+        capacity: usize = 0,
 
         const Self = @This();
 

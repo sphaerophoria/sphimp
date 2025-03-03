@@ -22,6 +22,7 @@ const WidgetFactory = gui.widget_factory.WidgetFactory(UiAction);
 const sphalloc = @import("sphalloc");
 const Sphalloc = sphalloc.Sphalloc;
 const GlAlloc = sphrender.GlAlloc;
+const TreeView = @import("TreeView.zig");
 
 fn wrapFrameScrollView(widget_factory: WidgetFactory, inner: gui.Widget(UiAction)) !gui.Widget(UiAction) {
     const frame = try widget_factory.makeFrame(inner);
@@ -497,8 +498,19 @@ pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, w
         .{},
     );
 
+    const layout = try full_factory.makeLayout();
+    try sidebar_stack.pushWidget(layout.asWidget(), .{});
+
+    const tree_view = try TreeView.init(
+        sidebar_alloc,
+        app,
+        &widget_state.squircle_renderer,
+        &widget_state.thumbnail_shared,
+    );
+    try layout.pushWidget(tree_view);
+
     const properties = try makeObjectProperties(app, full_factory);
-    try sidebar_stack.pushWidget(properties.widget, .{});
+    try layout.pushWidget(properties.widget);
 
     const brush_icon = try loadTexture(sidebar_alloc.gl, @embedFile("res/brush.png"));
     const eraser_icon = try loadTexture(sidebar_alloc.gl, @embedFile("res/eraser.png"));
