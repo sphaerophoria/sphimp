@@ -188,6 +188,20 @@ pub const ScratchAlloc = struct {
         self.backing.reset();
     }
 
+    pub fn allocMax(self: *ScratchAlloc, comptime T: type) []T {
+        const start_addr: usize = @intFromPtr(self.backing.buffer.ptr);
+        const current_head = start_addr + self.backing.end_index;
+        const alloc_start = std.mem.alignForward(usize, current_head, @alignOf(T));
+        const max_size = (self.backing.buffer.len -| (alloc_start - start_addr)) / @sizeOf(T);
+        return self.backing.allocator().alloc(T, max_size) catch unreachable;
+    }
+
+    pub fn shrinkTo(self: *ScratchAlloc, ptr: ?*anyopaque) void {
+        const base: usize = @intFromPtr(self.backing.buffer.ptr);
+        const ptr_u: usize = @intFromPtr(ptr);
+        self.backing.end_index = ptr_u - base;
+    }
+
     pub const Checkpoint = usize;
 
     pub fn checkpoint(self: *ScratchAlloc) Checkpoint {

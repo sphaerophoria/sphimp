@@ -262,11 +262,22 @@ pub fn main() !void {
         const selected_object = ui.app_widget.selectedObjectPtr();
         var next_object = selected_object.*;
 
+        //
+        // FIXME:
+        // FIXME: UI actions should contain which object they are working on
+        // FIXME:
+        //
+
         const step_response = try ui.runner.step(delta_s, window_size, &window.queue);
         if (step_response.action) |action| exec_action: {
             switch (action) {
                 .update_selected_object => |id| {
                     next_object = id;
+                },
+                .update_property_object => |id| {
+                    ui.sidebar.property_object_id.* = id;
+                    try ui.sidebar.updateObjectProperties();
+                    ui.sidebar.notifyObjectChanged();
                 },
                 .create_path => {
                     const new_obj = app.createPath(selected_object.*) catch |e| {
@@ -283,7 +294,7 @@ pub fn main() !void {
                     next_object = new_obj;
                 },
                 .create_drawing => {
-                    const new_obj = app.addDrawing(selected_object.*) catch |e| {
+                    const new_obj = app.addDrawing(ui.sidebar.property_object_id.*) catch |e| {
                         logError("failed to create drawing", e, @errorReturnTrace());
                         break :exec_action;
                     };
@@ -305,66 +316,66 @@ pub fn main() !void {
                     next_object = new_obj;
                 },
                 .delete_selected_object => {
-                    next_object = app.deleteObject(selected_object.*) catch |e| {
+                    next_object = app.deleteObject(ui.sidebar.property_object_id.*) catch |e| {
                         logError("failed to delete object", e, @errorReturnTrace());
                         break :exec_action;
                     };
                 },
                 .edit_selected_object_name => |params| {
-                    const name = app.objects.get(selected_object.*).name;
+                    const name = app.objects.get(ui.sidebar.property_object_id.*).name;
                     var edit_name = std.ArrayListUnmanaged(u8){};
 
                     // FIXME: Should we crash on failure?
                     try edit_name.appendSlice(allocators.scratch.allocator(), name);
                     try gui.textbox.executeTextEditOnArrayList(allocators.scratch.allocator(), &edit_name, params.pos, params.notifier, params.items);
 
-                    try app.objects.get(selected_object.*).updateName(edit_name.items);
+                    try app.objects.get(ui.sidebar.property_object_id.*).updateName(edit_name.items);
                 },
                 .update_composition_width => |new_width| {
-                    app.updateObjectWidth(selected_object.*, new_width) catch |e| {
+                    app.updateObjectWidth(ui.sidebar.property_object_id.*, new_width) catch |e| {
                         logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
                 .update_composition_height => |new_height| {
-                    app.updateObjectHeight(selected_object.*, new_height) catch |e| {
+                    app.updateObjectHeight(ui.sidebar.property_object_id.*, new_height) catch |e| {
                         logError("Failed to update selected object width", e, @errorReturnTrace());
                     };
                 },
                 .update_shader_float => |params| {
-                    app.setShaderFloat(selected_object.*, params.uniform_idx, params.float_idx, params.val) catch |e| {
+                    app.setShaderFloat(ui.sidebar.property_object_id.*, params.uniform_idx, params.float_idx, params.val) catch |e| {
                         logError("Failed to update shader float", e, @errorReturnTrace());
                     };
                 },
                 .update_shader_color => |params| {
                     inline for (&.{ "r", "g", "b" }, 0..) |field, i| {
-                        app.setShaderFloat(selected_object.*, params.uniform_idx, i, @field(params.color, field)) catch |e| {
+                        app.setShaderFloat(ui.sidebar.property_object_id.*, params.uniform_idx, i, @field(params.color, field)) catch |e| {
                             logError("Failed to update shader " ++ field, e, @errorReturnTrace());
                         };
                     }
                 },
                 .update_shader_image => |params| {
-                    app.setShaderImage(selected_object.*, params.uniform_idx, params.image) catch |e| {
+                    app.setShaderImage(ui.sidebar.property_object_id.*, params.uniform_idx, params.image) catch |e| {
                         logError("Failed to update shader image", e, @errorReturnTrace());
                     };
                 },
                 .update_drawing_source => |id| {
-                    app.updateDrawingDisplayObj(selected_object.*, id) catch |e| {
+                    app.updateDrawingDisplayObj(ui.sidebar.property_object_id.*, id) catch |e| {
                         logError("Failed to update drawing source", e, @errorReturnTrace());
                     };
                 },
                 .update_brush => |id| {
-                    app.setDrawingObjectBrush(selected_object.*, id) catch |e| {
+                    app.setDrawingObjectBrush(ui.sidebar.property_object_id.*, id) catch |e| {
                         logError("Failed to chnage brush", e, @errorReturnTrace());
                     };
-                    try ui.sidebar.updateObjectProperties(selected_object);
+                    try ui.sidebar.updateObjectProperties();
                 },
                 .update_path_source => |id| {
-                    app.updatePathDisplayObj(selected_object.*, id) catch |e| {
+                    app.updatePathDisplayObj(ui.sidebar.property_object_id.*, id) catch |e| {
                         logError("Failed to update path source", e, @errorReturnTrace());
                     };
                 },
                 .update_text_obj_name => |params| text_update: {
-                    const text = app.objects.get(selected_object.*).asText() orelse break :text_update;
+                    const text = app.objects.get(ui.sidebar.property_object_id.*).asText() orelse break :text_update;
 
                     var edit = std.ArrayListUnmanaged(u8){};
 
@@ -372,17 +383,17 @@ pub fn main() !void {
                     try edit.appendSlice(allocators.scratch.allocator(), text.current_text);
                     try gui.textbox.executeTextEditOnArrayList(allocators.scratch.allocator(), &edit, params.pos, params.notifier, params.items);
 
-                    app.updateTextObjectContent(selected_object.*, edit.items) catch |e| {
+                    app.updateTextObjectContent(ui.sidebar.property_object_id.*, edit.items) catch |e| {
                         logError("Failed to set text content", e, @errorReturnTrace());
                     };
                 },
                 .update_selected_font => |font_id| {
-                    app.updateFontId(selected_object.*, font_id) catch |e| {
+                    app.updateFontId(ui.sidebar.property_object_id.*, font_id) catch |e| {
                         logError("Failed to set font id", e, @errorReturnTrace());
                     };
                 },
                 .update_text_size => |size| {
-                    app.updateFontSize(selected_object.*, size) catch |e| {
+                    app.updateFontSize(ui.sidebar.property_object_id.*, size) catch |e| {
                         logError("Failed to set font size", e, @errorReturnTrace());
                     };
                 },
@@ -391,13 +402,13 @@ pub fn main() !void {
                         logError("Failed to add object to composition", e, @errorReturnTrace());
                         break :blk;
                     };
-                    try ui.sidebar.updateObjectProperties(selected_object);
+                    try ui.sidebar.updateObjectProperties();
                 },
                 .delete_from_composition => |idx| {
-                    app.deleteFromComposition(selected_object.*, .{ .value = idx }) catch |e| {
+                    app.deleteFromComposition(ui.sidebar.property_object_id.*, .{ .value = idx }) catch |e| {
                         logError("Failed to delete object from composition", e, @errorReturnTrace());
                     };
-                    try ui.sidebar.updateObjectProperties(selected_object);
+                    try ui.sidebar.updateObjectProperties();
                 },
                 .toggle_composition_debug => {
                     app.toggleCompositionDebug() catch |e| {
@@ -409,7 +420,7 @@ pub fn main() !void {
                 },
                 .set_drawing_tool => |t| {
                     app.tool_params.active_drawing_tool = t;
-                    try ui.sidebar.updateObjectProperties(selected_object);
+                    try ui.sidebar.updateObjectProperties();
                 },
                 .change_eraser_size => |size| {
                     app.tool_params.eraser_width = @max(size, 0.0);
@@ -446,7 +457,9 @@ pub fn main() !void {
 
         if (selected_object.value != next_object.value) {
             ui.app_widget.app_view.setSelectedObject(next_object);
-            try ui.sidebar.updateObjectProperties(selected_object);
+            ui.sidebar.tree_view.reset();
+            ui.sidebar.property_object_id.* = next_object;
+            try ui.sidebar.updateObjectProperties();
             ui.sidebar.notifyObjectChanged();
         }
 
