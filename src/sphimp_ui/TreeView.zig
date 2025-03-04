@@ -39,7 +39,22 @@ per_frame: struct {
 },
 thumbnail_shared: *const gui.thumbnail.Shared,
 interactable_shared: *const gui.interactable.Shared(UiAction),
+selected_color: gui.Color,
+selected_id: *ObjectId,
+frame_shared: *const gui.frame.Shared,
+pan: PixelOffset = .{},
+panning: ?PanData = null,
+zoom: f32 = 1.0,
 
+const PanData = struct {
+    last_mouse_pos: gui.MousePos,
+};
+
+// FIXME: Should this live in gui.zig
+const PixelOffset = struct {
+    x: f32 = 0,
+    y: f32 = 0,
+};
 const TextureData = struct {
     size: PixelSize,
     texture: sphrender.Texture,
@@ -53,7 +68,11 @@ const TextureData = struct {
     }
 };
 
-pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.SquircleRenderer, thumbnail_shared: *const gui.thumbnail.Shared, interactable_shared: *const gui.interactable.Shared(UiAction),) !gui.Widget(UiAction) {
+pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.SquircleRenderer, thumbnail_shared: *const gui.thumbnail.Shared, interactable_shared: *const gui.interactable.Shared(UiAction),
+    selected_color: gui.Color,
+    selected_id: *ObjectId,
+    frame_shared: *const gui.frame.Shared,
+    ) !gui.Widget(UiAction) {
     const ctx = try alloc.heap.arena().create(TreeView);
     ctx.* = .{
         .app = app,
@@ -63,6 +82,9 @@ pub fn init(alloc: gui.GuiAlloc, app: *App, squircle_renderer: *const gui.Squirc
         .squircle_renderer = squircle_renderer,
         .thumbnail_shared = thumbnail_shared,
         .interactable_shared = interactable_shared,
+        .selected_color = selected_color,
+        .selected_id = selected_id,
+        .frame_shared = frame_shared,
     };
 
     return .{
@@ -80,16 +102,21 @@ const widget_vtable = gui.Widget(UiAction).VTable{
     .update = TreeView.update,
     .setInputState = TreeView.setInputState,
     .setFocused = null,
-    .reset = null,
+    .reset = TreeView.reset,
 };
 
 fn render(ctx: ?*anyopaque, widget_bounds: PixelBBox, window_bounds: PixelBBox) void {
     const self: *TreeView = @ptrCast(@alignCast(ctx));
 
+    const temp_scissor = sphrender.TemporaryScissor.init();
+    defer temp_scissor.reset();
+
+    temp_scissor.set(widget_bounds.left, window_bounds.bottom - widget_bounds.bottom, widget_bounds.calcWidth(), widget_bounds.calcHeight() );
+
     // FIXME: self.layout.len()
     for (0..self.per_frame.layout.data.items.len) |i| {
-        const bounds = self.per_frame.layout.bounds(i).offset(widget_bounds.left, widget_bounds.top);
         const widget = self.per_frame.widgets.items[i];
+        const bounds = self.per_frame.layout.bounds(i, TreeView.getSize(ctx), widget.getSize(), widget_bounds, self.pan, self.zoom);
         widget.render(bounds, window_bounds);
     }
 }
@@ -144,14 +171,28 @@ fn update(ctx: ?*anyopaque, available_size: PixelSize, _: f32) anyerror!void {
             self.thumbnail_shared,
         );
 
-        const interactable = try gui.interactable.interactable(
+        const frame = try gui.frame.makeColorableFrame(
             UiAction,
             self.per_frame.alloc.heap.arena(),
             thumbnail,
+            FrameColor { .selected_id = self.selected_id, .color = self.selected_color, .id = id },
+            self.frame_shared,
+        );
+
+        const interactable = try gui.interactable.interactable(
+            UiAction,
+            self.per_frame.alloc.heap.arena(),
+            frame,
             .{ .update_property_object = id },
             null,
             self.interactable_shared,
         );
+
+        try interactable.update(.{
+            .width = @intFromFloat(self.per_frame.layout.thumbnail_height),
+            .height = @intFromFloat(self.per_frame.layout.thumbnail_height),
+        }, 0);
+
         try self.per_frame.widgets.append(interactable);
     }
 }
@@ -162,15 +203,60 @@ fn setInputState(ctx: ?*anyopaque, widget_bounds: PixelBBox, input_bounds: Pixel
     var ret = InputResponse(UiAction){};
     // FIXME: self.layout.len()
     for (0..self.per_frame.layout.data.items.len) |i| {
-        const bounds = self.per_frame.layout.bounds(i).offset(widget_bounds.left, widget_bounds.top);
         const widget = self.per_frame.widgets.items[i];
+        const bounds = self.per_frame.layout.bounds(i, TreeView.getSize(ctx), widget.getSize(), widget_bounds, self.pan, self.zoom);
         const widget_response = widget.setInputState(bounds, input_bounds.calcIntersection(bounds), input_state);
         if (widget_response.action) |a| {
             ret.action = a;
         }
     }
+
+    if (input_bounds.containsMousePos(input_state.mouse_pos) and input_state.mouse_middle_pressed) {
+        self.panning = .{
+            .last_mouse_pos = input_state.mouse_pos,
+        };
+    }
+
+    if (input_state.mouse_middle_released) {
+        self.panning = null;
+    }
+
+
+    if (self.panning) |*pan_state| {
+        self.pan.x += (input_state.mouse_pos.x - pan_state.last_mouse_pos.x) / self.zoom;
+        self.pan.y += (input_state.mouse_pos.y - pan_state.last_mouse_pos.y) / self.zoom;
+        pan_state.last_mouse_pos = input_state.mouse_pos;
+    }
+
+    if (input_bounds.containsMousePos(input_state.mouse_pos)) {
+        // FIXME: Deduplicate with input_state in app.zig
+        self.zoom *= std.math.pow(f32, 1.1, input_state.frame_scroll);
+    }
+
     return ret;
 }
+
+fn reset(ctx: ?*anyopaque) void {
+    const self: *TreeView = @ptrCast(@alignCast(ctx));
+    self.pan = .{};
+    self.zoom = 1.0;
+}
+
+const FrameColor = struct {
+    // FIXME: These could be shared between all FrameColor instances
+    selected_id: *ObjectId,
+    color: gui.Color,
+    id: ObjectId,
+
+    pub fn getColor(self: FrameColor) ?gui.Color {
+        if (self.selected_id.value == self.id.value) {
+            return self.color;
+        } else {
+            return null;
+        }
+    }
+
+};
 
 const Layout = struct {
     data: sphutil.RuntimeBoundedArray(Elem) = .{},
@@ -272,18 +358,38 @@ const Layout = struct {
         }
     }
 
-    fn bounds(self: *Layout, idx: usize) PixelBBox {
+    fn bounds(self: *Layout, idx: usize, container_size: PixelSize, widget_size: PixelSize, outer_bounds: PixelBBox, pan: PixelOffset, zoom: f32) PixelBBox {
         const elem: Elem = self.data.items[idx];
         const top: i32 = @intFromFloat(elem.location[1] - self.thumbnail_height / 2);
         const left: i32 = @intFromFloat(elem.location[0] - self.thumbnail_height / 2);
 
+
         // FIXME: Round
         const thumbnail_height_u: u31 = @intFromFloat(self.thumbnail_height);
-        return .{
+        const out_area = PixelBBox{
             .top = top,
             .left = left,
             .right = left + thumbnail_height_u,
             .bottom = top + thumbnail_height_u,
         };
+
+        const centered = gui.util.centerBoxInBounds(widget_size, out_area);
+        const panned = centered.offset(outer_bounds.left + @as(i32, @intFromFloat(pan.x)), outer_bounds.top + @as(i32, @intFromFloat(pan.y)));
+
+        const container_center_x = container_size.width / 2;
+        const container_center_y = container_size.height / 2;
+
+        return .{
+            .top = applyZoom(container_center_y, panned.top, zoom),
+            .bottom = applyZoom(container_center_y, panned.bottom, zoom),
+            .left = applyZoom(container_center_x, panned.left, zoom),
+            .right = applyZoom(container_center_x, panned.right, zoom),
+        };
+    }
+
+    fn applyZoom(center: i32, loc: i32, zoom: f32) i32 {
+        const center_f: f32 = @floatFromInt(center);
+        const loc_f: f32 = @floatFromInt(loc);
+        return @intFromFloat(center_f + (loc_f - center_f) * zoom);
     }
 };

@@ -125,6 +125,7 @@ pub const Handle = struct {
     // Note that these widgets are owned by the sidebar, not by us
     object_properties: gui.Widget(UiAction),
     specific_object_properties: *gui.layout.Layout(UiAction),
+    tree_view: gui.Widget(UiAction),
 
     brush_icon: TextureRetriever,
     eraser_icon: TextureRetriever,
@@ -513,6 +514,9 @@ pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, w
         &widget_state.squircle_renderer,
         &widget_state.thumbnail_shared,
         &widget_state.interactable_shared,
+        gui.widget_factory.StyleColors.default_color,
+        property_object_id,
+        &widget_state.frame_shared,
     );
     try layout.pushWidget(tree_view);
 
@@ -533,6 +537,7 @@ pub fn makeSidebar(sidebar_alloc: gui.GuiAlloc, app: *App, sidebar_width: u31, w
         .app = app,
         .removable_content_widget_factory = removable_factory,
         .property_object_id = property_object_id,
+        .tree_view = tree_view,
     };
 
     try handle.updateObjectProperties(app.selectedObjectId());

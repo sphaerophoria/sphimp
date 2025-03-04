@@ -449,6 +449,7 @@ pub fn main() !void {
         if (selected_object.value != app.input_state.selected_object.value) {
             try ui.sidebar.updateObjectProperties(app.selectedObjectId());
             ui.sidebar.notifyObjectChanged();
+            ui.sidebar.tree_view.reset();
         }
 
         window.swapBuffers();
