@@ -36,7 +36,7 @@ const BumpAlloc = struct {
         };
     }
 
-    fn alloc(ctx: *anyopaque, len: usize, alignment: u8, ret_addr: usize) ?[*]u8 {
+    fn alloc(ctx: *anyopaque, len: usize, alignment: Alignment, ret_addr: usize) ?[*]u8 {
         const self: *BumpAlloc = @ptrCast(@alignCast(ctx));
 
         {

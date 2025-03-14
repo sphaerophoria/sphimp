@@ -48,9 +48,9 @@ const Builder = struct {
 
         const stb_image = stbi_header.createModule();
         stb_image.addIncludePath(b.path("src/stb"));
-        stb_image.addCSourceFile(.{
-            .file = b.path("src/stb/stb_image.c"),
-        });
+        //stb_image.addCSourceFile(.{
+        //    .file = b.path("src/stb/stb_image.c"),
+        //});
 
         const stbiw_header = b.addTranslateC(.{
             .root_source_file = b.path("src/stb/stb_image_write.h"),
@@ -60,9 +60,9 @@ const Builder = struct {
 
         const stb_image_write = stbiw_header.createModule();
         stb_image_write.addIncludePath(b.path("src/stb"));
-        stb_image_write.addCSourceFile(.{
-            .file = b.path("src/stb/stb_image_write.c"),
-        });
+        //stb_image_write.addCSourceFile(.{
+        //    .file = b.path("src/stb/stb_image_write.c"),
+        //});
 
         sphimp.addImport("stb_image", stb_image);
         sphimp.addImport("stb_image_write", stb_image_write);
@@ -111,6 +111,7 @@ const Builder = struct {
             .root_source_file = self.b.path(root_source_file),
             .target = self.target,
             .optimize = self.opt,
+            .use_llvm = false,
         });
     }
 
