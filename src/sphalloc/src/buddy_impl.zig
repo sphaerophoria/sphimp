@@ -3,7 +3,7 @@ const Alignment = std.mem.Alignment;
 
 pub fn alloc(ctx: anytype, len: usize, alignment: Alignment, ret_addr: usize) ?[*]u8 {
     const Ctx = @TypeOf(ctx);
-    // Given len, which free list do we want
+
     const log2_len = std.math.log2_int_ceil(usize, len);
     std.debug.assert(alignment.compare(.lte, @enumFromInt(log2_len)));
 

@@ -1,6 +1,4 @@
-const stbi = @cImport({
-    @cInclude("stb_image.h");
-});
+const stbi = @import("stb_image");
 
 const StbImage = @This();
 

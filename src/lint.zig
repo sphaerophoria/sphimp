@@ -9,12 +9,11 @@ const App = sphimp.App;
 const AppView = sphimp.AppView;
 const sphmath = @import("sphmath");
 const obj_mod = sphimp.object;
-const stbiw = @cImport({
-    @cInclude("stb_image_write.h");
-});
+const stbiw = @import("stb_image_write");
 const sphalloc = @import("sphalloc");
 const Sphalloc = sphalloc.Sphalloc;
 const ScratchAlloc = sphalloc.ScratchAlloc;
+
 const sphrender = @import("sphrender");
 const RenderAlloc = sphrender.RenderAlloc;
 const GlAlloc = sphrender.GlAlloc;

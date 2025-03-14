@@ -7,6 +7,7 @@ const Builder = struct {
 
     check_step: *std.Build.Step,
 
+    stb_image_write: *std.Build.Module,
     sphmath: *std.Build.Module,
     sphrender: *std.Build.Module,
     sphtext: *std.Build.Module,
@@ -38,11 +39,33 @@ const Builder = struct {
         sphimp.addImport("sphmath", sphmath);
         sphimp.addImport("sphtext", sphtext);
         sphimp.addImport("sphutil", sphutil);
-        sphimp.addCSourceFiles(.{
-            .root = b.path("src/stb"),
-            .files = &.{ "stb_image.c", "stb_image_write.c" },
+
+        const stbi_header = b.addTranslateC(.{
+            .root_source_file = b.path("src/stb/stb_image.h"),
+            .target = target,
+            .optimize = opt,
         });
-        sphimp.addIncludePath(b.path("src/stb"));
+
+        const stb_image = stbi_header.createModule();
+        stb_image.addIncludePath(b.path("src/stb"));
+        stb_image.addCSourceFile(.{
+            .file = b.path("src/stb/stb_image.c"),
+        });
+
+        const stbiw_header = b.addTranslateC(.{
+            .root_source_file = b.path("src/stb/stb_image_write.h"),
+            .target = target,
+            .optimize = opt,
+        });
+
+        const stb_image_write = stbiw_header.createModule();
+        stb_image_write.addIncludePath(b.path("src/stb"));
+        stb_image_write.addCSourceFile(.{
+            .file = b.path("src/stb/stb_image_write.c"),
+        });
+
+        sphimp.addImport("stb_image", stb_image);
+        sphimp.addImport("stb_image_write", stb_image_write);
 
         return .{
             .b = b,
@@ -57,6 +80,7 @@ const Builder = struct {
             .sphwindow = sphwindow,
             .sphalloc = sphalloc,
             .sphutil = sphutil,
+            .stb_image_write = stb_image_write,
         };
     }
 
@@ -72,6 +96,7 @@ const Builder = struct {
         exe.root_module.addImport("sphimp", self.sphimp);
         exe.root_module.addImport("sphalloc", self.sphalloc);
         exe.root_module.addImport("sphutil", self.sphutil);
+        exe.root_module.addImport("stb_image_write", self.stb_image_write);
         exe.linkLibC();
     }
 
@@ -99,13 +124,13 @@ const Builder = struct {
     }
 
     fn installAndCheck(self: *Builder, exe: *std.Build.Step.Compile) !void {
-        //const check_exe = try self.b.allocator.create(std.Build.Step.Compile);
-        //check_exe.* = exe.*;
-        //self.check_step.dependOn(&check_exe.step);
+        const check_exe = try self.b.allocator.create(std.Build.Step.Compile);
+        check_exe.* = exe.*;
+        self.check_step.dependOn(&check_exe.step);
 
         // No errors emitted if -fno-emit-bin
         // https://github.com/ziglang/zig/issues/22682
-        self.check_step.dependOn(&exe.step);
+        //self.check_step.dependOn(&exe.step);
         self.b.installArtifact(exe);
     }
 };
@@ -122,7 +147,6 @@ pub fn build(b: *std.Build) !void {
         "lint",
         "src/lint.zig",
     );
-    lint_exe.linkSystemLibrary("EGL");
     builder.addAppDependencies(lint_exe);
     try builder.installAndCheck(lint_exe);
 
