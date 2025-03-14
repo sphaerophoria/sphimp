@@ -33,6 +33,14 @@ pub const ButtonStyle = struct {
     height: u31,
 };
 
+// Action
+//
+// .{ .some_action = some_val } -> __struct_generated_at_line1234
+//
+// struct -> generate() -> Action
+//
+// getAction(&action) Action
+
 pub fn makeButton(
     comptime Action: type,
     alloc: gui.GuiAlloc,
@@ -147,10 +155,10 @@ pub fn Button(comptime Action: type, comptime ActionGenerator: type) type {
 
 fn getAction(comptime Action: type, generator: anytype) Action {
     const Ptr = @TypeOf(generator);
-    const T = @typeInfo(Ptr).Pointer.child;
+    const T = @typeInfo(Ptr).pointer.child;
 
     switch (@typeInfo(T)) {
-        .Struct => {
+        .@"struct" => {
             if (@hasDecl(T, "generate")) {
                 return generator.generate();
             }

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 set -ex
-exit 0
 
 zig fmt src build.zig --check
 
