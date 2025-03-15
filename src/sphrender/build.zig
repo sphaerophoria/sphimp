@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+
     const gl_zig = b.addTranslateC(.{
         .root_source_file = b.path("src/gl.h"),
         .target = target,
