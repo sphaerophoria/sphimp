@@ -48,9 +48,9 @@ const Builder = struct {
 
         const stb_image = stbi_header.createModule();
         stb_image.addIncludePath(b.path("src/stb"));
-        //stb_image.addCSourceFile(.{
-        //    .file = b.path("src/stb/stb_image.c"),
-        //});
+        stb_image.addCSourceFile(.{
+            .file = b.path("src/stb/stb_image.c"),
+        });
 
         const stbiw_header = b.addTranslateC(.{
             .root_source_file = b.path("src/stb/stb_image_write.h"),
@@ -60,9 +60,9 @@ const Builder = struct {
 
         const stb_image_write = stbiw_header.createModule();
         stb_image_write.addIncludePath(b.path("src/stb"));
-        //stb_image_write.addCSourceFile(.{
-        //    .file = b.path("src/stb/stb_image_write.c"),
-        //});
+        stb_image_write.addCSourceFile(.{
+            .file = b.path("src/stb/stb_image_write.c"),
+        });
 
         sphimp.addImport("stb_image", stb_image);
         sphimp.addImport("stb_image_write", stb_image_write);
@@ -111,7 +111,6 @@ const Builder = struct {
             .root_source_file = self.b.path(root_source_file),
             .target = self.target,
             .optimize = self.opt,
-            .use_llvm = false,
         });
     }
 
@@ -127,13 +126,60 @@ const Builder = struct {
     fn installAndCheck(self: *Builder, exe: *std.Build.Step.Compile) !void {
         const check_exe = try self.b.allocator.create(std.Build.Step.Compile);
         check_exe.* = exe.*;
-        self.check_step.dependOn(&check_exe.step);
 
-        // No errors emitted if -fno-emit-bin
         // https://github.com/ziglang/zig/issues/22682
-        //self.check_step.dependOn(&exe.step);
+        //
+        // Recursively clone all modules and patch out any c source files. This
+        // is "fine" because...
+        //
+        // 1. Next zig upgrade we can just delete this
+        // 2. C source files are only used in linking, which we aren't doing
+        var patcher = ModulePatcher{};
+        check_exe.root_module = try ModulePatcher.cloneModule(self.b.allocator, exe.root_module);
+        try patcher.removeCSourceFiles(self.b.allocator, check_exe.root_module);
+
+        self.check_step.dependOn(&check_exe.step);
         self.b.installArtifact(exe);
     }
+};
+
+const ModulePatcher = struct {
+    seen_modules: std.StringArrayHashMapUnmanaged(*std.Build.Module) = .empty,
+
+    fn cloneModule(alloc: std.mem.Allocator, old: *std.Build.Module) !*std.Build.Module {
+        const new = try alloc.create(std.Build.Module);
+
+        new.* = old.*;
+        new.link_objects = try old.link_objects.clone(alloc);
+        new.import_table = try old.import_table.clone(alloc);
+        return new;
+    }
+
+    fn removeCSourceFiles(self: *ModulePatcher, alloc: std.mem.Allocator, m: *std.Build.Module) !void {
+        var idx: usize = m.link_objects.items.len;
+        while (idx > 0) {
+            idx -= 1;
+
+            switch (m.link_objects.items[idx]) {
+                .c_source_file, .c_source_files => {
+                    _ = m.link_objects.swapRemove(idx);
+                },
+                else => {},
+            }
+        }
+
+        var it = m.import_table.iterator();
+        while (it.next()) |entry| {
+            const gop = try self.seen_modules.getOrPut(alloc, entry.key_ptr.*);
+            if (!gop.found_existing) {
+                const new = try cloneModule(alloc, entry.value_ptr.*);
+                try self.removeCSourceFiles(alloc, new);
+                gop.value_ptr.* = new;
+            }
+            entry.value_ptr.* = gop.value_ptr.*;
+        }
+    }
+
 };
 
 pub fn build(b: *std.Build) !void {
@@ -148,6 +194,7 @@ pub fn build(b: *std.Build) !void {
         "lint",
         "src/lint.zig",
     );
+    lint_exe.linkSystemLibrary("EGL");
     builder.addAppDependencies(lint_exe);
     try builder.installAndCheck(lint_exe);
 
