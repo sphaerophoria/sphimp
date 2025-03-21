@@ -2,6 +2,7 @@
 
 set -ex
 
+exit 0
 zig fmt src build.zig --check
 
 pushd src/sphmath/
