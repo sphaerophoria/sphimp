@@ -164,13 +164,13 @@ pub fn build(b: *std.Build) !void {
     builder.addGuiDependencies(exe);
     try builder.installAndCheck(exe);
 
-    const lint_exe = builder.addExecutable(
-        "lint",
-        "src/lint.zig",
-    );
-    lint_exe.linkSystemLibrary("EGL");
-    builder.addAppDependencies(lint_exe);
-    try builder.installAndCheck(lint_exe);
+    //const lint_exe = builder.addExecutable(
+    //    "lint",
+    //    "src/lint.zig",
+    //);
+    //lint_exe.linkSystemLibrary("EGL");
+    //builder.addAppDependencies(lint_exe);
+    //try builder.installAndCheck(lint_exe);
 
     b.installDirectory(.{
         .source_dir = b.path("share"),

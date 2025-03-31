@@ -129,8 +129,8 @@ pub fn IndexBuffer(comptime T: type) type {
     };
 }
 
-pub const VertexArray = struct {
-    value: gl.GLuint,
+pub const RenderSource = struct {
+    vao: gl.GLuint,
     index_type: ?gl.GLenum = null,
     len: usize,
 
@@ -138,28 +138,28 @@ pub const VertexArray = struct {
 
     pub fn init(gl_alloc: *GlAlloc) !Self {
         return .{
-            .value = try gl_alloc.createArray(),
+            .vao = try gl_alloc.createArray(),
             .len = 0,
         };
     }
 
-    pub fn bindData(self: *VertexArray, comptime VertElem: type, program: gl.GLuint, data: Buffer2(VertElem)) void {
+    pub fn bindData(self: *RenderSource, comptime VertElem: type, program: ProgramHandle, data: Buffer2(VertElem)) void {
         const fields = std.meta.fields(VertElem);
         var field_locs: [fields.len]gl.GLint = undefined;
 
         inline for (fields, 0..) |elem, i| {
-            field_locs[i] = gl.glGetAttribLocation(program, elem.name);
+            field_locs[i] = gl.glGetAttribLocation(program.value, elem.name);
         }
 
         const binding_index = 0;
 
-        gl.glVertexArrayVertexBuffer(self.value, binding_index, data.vertex_buffer, 0, @sizeOf(VertElem));
+        gl.glVertexArrayVertexBuffer(self.vao, binding_index, data.vertex_buffer, 0, @sizeOf(VertElem));
 
         inline for (fields, field_locs) |field, loc| {
             if (loc >= 0) {
                 const offs = @offsetOf(VertElem, field.name);
 
-                gl.glEnableVertexArrayAttrib(self.value, @intCast(loc));
+                gl.glEnableVertexArrayAttrib(self.vao, @intCast(loc));
                 const num_elems = switch (field.type) {
                     sphmath.Vec2 => 2,
                     sphmath.Vec3 => 3,
@@ -177,22 +177,22 @@ pub const VertexArray = struct {
                 };
                 switch (field.type) {
                     sphmath.Vec4, sphmath.Vec3, sphmath.Vec2, f32 => {
-                        gl.glVertexArrayAttribFormat(self.value, @intCast(loc), num_elems, elem_type, gl.GL_FALSE, offs);
+                        gl.glVertexArrayAttribFormat(self.vao, @intCast(loc), num_elems, elem_type, gl.GL_FALSE, offs);
                     },
                     u32, [4]u8 => {
-                        gl.glVertexArrayAttribIFormat(self.value, @intCast(loc), num_elems, elem_type, offs);
+                        gl.glVertexArrayAttribIFormat(self.vao, @intCast(loc), num_elems, elem_type, offs);
                     },
                     else => @compileError("Unknown type"),
                 }
-                gl.glVertexArrayAttribBinding(self.value, @intCast(loc), binding_index);
+                gl.glVertexArrayAttribBinding(self.vao, @intCast(loc), binding_index);
             }
         }
 
         self.len = data.len;
     }
 
-    pub fn setIndexBuffer(self: *VertexArray, comptime T: type, buf: IndexBuffer(T)) void {
-        gl.glVertexArrayElementBuffer(self.value, buf.value);
+    pub fn setIndexBuffer(self: *RenderSource, comptime T: type, buf: IndexBuffer(T)) void {
+        gl.glVertexArrayElementBuffer(self.vao, buf.value);
         self.index_type = switch (T) {
             u16 => gl.GL_UNSIGNED_SHORT,
             else => @compileError("Unimplemented index buffer type"),
@@ -201,57 +201,24 @@ pub const VertexArray = struct {
         self.len = buf.len;
     }
 
-    pub fn bindDataSplit(self: *VertexArray, comptime VertElem: type, program: gl.GLuint, data: SplitBuffers(VertElem)) void {
-        const fields = std.meta.fields(VertElem);
-        var field_locs: [fields.len]gl.GLint = undefined;
-
-        inline for (fields, 0..) |elem, i| {
-            field_locs[i] = gl.glGetAttribLocation(program, elem.name);
-
-            const binding_index = i;
-            gl.glVertexArrayVertexBuffer(self.value, binding_index, data.vertex_buffer, 0, @sizeOf(elem.@"struct".type));
-
-            inline for (fields, field_locs) |field, loc| {
-                if (loc >= 0) {
-                    const offs = @offsetOf(VertElem, field.name);
-
-                    gl.glEnableVertexArrayAttrib(self.value, @intCast(loc));
-                    const num_elems = switch (field.type) {
-                        sphmath.Vec2 => 2,
-                        sphmath.Vec3 => 3,
-                        sphmath.Vec4 => 4,
-                        f32 => 1,
-                        u32 => 1,
-                        else => @compileError("Unknown type"),
-                    };
-                    const elem_type = switch (field.type) {
-                        sphmath.Vec4, sphmath.Vec3, sphmath.Vec2, f32 => gl.GL_FLOAT,
-                        u32 => gl.GL_UNSIGNED_INT,
-                        else => @compileError("Unknown type"),
-                    };
-                    switch (field.type) {
-                        sphmath.Vec4, sphmath.Vec3, sphmath.Vec2, f32 => {
-                            gl.glVertexArrayAttribFormat(self.value, @intCast(loc), num_elems, elem_type, gl.GL_FALSE, offs);
-                        },
-                        u32 => {
-                            gl.glVertexArrayAttribIFormat(self.value, @intCast(loc), num_elems, elem_type, offs);
-                        },
-                        else => @compileError("Unknown type"),
-                    }
-                    gl.glVertexArrayAttribBinding(self.value, @intCast(loc), binding_index);
-                }
-            }
-
-        }
-        self.len = data.len;
+    pub fn bindDataSplit(self: *RenderSource, comptime VertElem: type, program: ProgramHandle, data: SplitBuffers(VertElem)) void {
+        _ = self;
+        _ = program;
+        _ = data;
+        unreachable;
     }
+};
+
+
+pub const ProgramHandle = struct {
+    value: gl.GLuint,
 };
 
 pub fn Program2(comptime KnownUniforms: type) type {
     const num_known_uniforms = std.meta.fields(KnownUniforms).len;
 
     return struct {
-        program: gl.GLuint,
+        handle: ProgramHandle,
         known_uniform_locations: UniformLocations,
 
         const UniformLocations = [num_known_uniforms]?gl.GLint;
@@ -273,13 +240,13 @@ pub fn Program2(comptime KnownUniforms: type) type {
             }
 
             return .{
-                .program = program,
+                .handle = .{ .value = program },
                 .known_uniform_locations = known_uniform_locations,
             };
         }
 
         pub fn unknownUniforms(self: Self, scratch: *ScratchAlloc) !UnknownUniforms {
-            var uniform_it = try sphrender.ProgramUniformIt.init(self.program);
+            var uniform_it = try sphrender.ProgramUniformIt.init(self.handle.value);
 
             var ret = try sphutil.RuntimeBoundedArray(UnknownUniforms.Item).init(
                 scratch.allocator(),
@@ -304,21 +271,21 @@ pub fn Program2(comptime KnownUniforms: type) type {
             };
         }
 
-        pub fn render(self: Self, array: VertexArray, options: KnownUniforms) void {
+        pub fn render(self: Self, array: RenderSource, options: KnownUniforms) void {
             return self.renderWithExtra(array, options, UnknownUniforms.empty, &.{});
         }
 
-        pub fn renderLines(self: Self, array: VertexArray, options: KnownUniforms) void {
+        pub fn renderLines(self: Self, array: RenderSource, options: KnownUniforms) void {
             return self.renderInner(array, options, UnknownUniforms.empty, &.{}, gl.GL_LINES);
         }
 
-        pub fn renderWithExtra(self: Self, array: VertexArray, options: KnownUniforms, defs: UnknownUniforms, values: []const ResolvedUniformValue) void {
+        pub fn renderWithExtra(self: Self, array: RenderSource, options: KnownUniforms, defs: UnknownUniforms, values: []const ResolvedUniformValue) void {
             self.renderInner(array, options, defs, values, gl.GL_TRIANGLES);
         }
 
-        fn renderInner(self: Self, array: VertexArray, options: KnownUniforms, defs: UnknownUniforms, values: []const ResolvedUniformValue, mode: gl.GLenum) void {
-            gl.glUseProgram(self.program);
-            gl.glBindVertexArray(array.value);
+        fn renderInner(self: Self, array: RenderSource, options: KnownUniforms, defs: UnknownUniforms, values: []const ResolvedUniformValue, mode: gl.GLenum) void {
+            gl.glUseProgram(self.handle.value);
+            gl.glBindVertexArray(array.vao);
 
             var texture_unit_alloc = sphrender.TextureUnitAlloc{};
 
