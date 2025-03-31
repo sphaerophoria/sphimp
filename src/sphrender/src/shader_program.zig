@@ -166,18 +166,20 @@ pub const VertexArray = struct {
                     sphmath.Vec4 => 4,
                     f32 => 1,
                     u32 => 1,
+                    [4]u8 => 4,
                     else => @compileError("Unknown type"),
                 };
                 const elem_type = switch (field.type) {
                     sphmath.Vec4, sphmath.Vec3, sphmath.Vec2, f32 => gl.GL_FLOAT,
                     u32 => gl.GL_UNSIGNED_INT,
+                    [4]u8 => gl.GL_UNSIGNED_BYTE,
                     else => @compileError("Unknown type"),
                 };
                 switch (field.type) {
                     sphmath.Vec4, sphmath.Vec3, sphmath.Vec2, f32 => {
                         gl.glVertexArrayAttribFormat(self.value, @intCast(loc), num_elems, elem_type, gl.GL_FALSE, offs);
                     },
-                    u32 => {
+                    u32, [4]u8 => {
                         gl.glVertexArrayAttribIFormat(self.value, @intCast(loc), num_elems, elem_type, offs);
                     },
                     else => @compileError("Unknown type"),
